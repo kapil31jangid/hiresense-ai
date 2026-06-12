@@ -10,6 +10,8 @@ scripts/
 !.env.example
 !.env.sample
 !*.env.yaml.example
+backend/.env
+backend/.env.*
 *.pem
 *.key
 *.crt
@@ -46,6 +48,7 @@ dist/
 build/
 coverage/
 htmlcov/
+backend/exports/
 *.log
 *.sqlite
 *.sqlite3
