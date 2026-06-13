@@ -114,3 +114,112 @@ def test_skill_aliases_normalize_to_canonical_values():
     assert response.status_code == 201
     required_skills = response.json()["job"]["required_skills"]
     assert required_skills == ["python", "fastapi", "postgresql", "react", "next.js", "docker"]
+
+
+def test_job_update_refreshes_parsing_and_versions():
+    create_response = client.post(
+        "/api/v1/jobs",
+        json={
+            "title": "Backend Engineer",
+            "source_type": "TEXT",
+            "description_text": "Required skills: Python and FastAPI.",
+        },
+        headers=RECRUITER_HEADERS,
+    )
+
+    assert create_response.status_code == 201
+    job_id = create_response.json()["job"]["job_id"]
+
+    update_response = client.patch(
+        f"/api/v1/jobs/{job_id}",
+        json={
+            "description_text": (
+                "Required skills: Python, FastAPI, and PostgreSQL. "
+                "Preferred skills: AWS."
+            ),
+            "location": "Remote",
+        },
+        headers=RECRUITER_HEADERS,
+    )
+
+    assert update_response.status_code == 200
+    job = update_response.json()["job"]
+    assert job["required_skills"] == ["python", "fastapi", "postgresql"]
+    assert job["preferred_skills"] == ["aws"]
+    assert job["location"] == "Remote"
+    assert job["requirement_version"] >= 2
+
+
+def test_job_reprocess_reparses_existing_description():
+    create_response = client.post(
+        "/api/v1/jobs",
+        json={
+            "title": "Data Engineer",
+            "source_type": "TEXT",
+            "description_text": "Required skills: Python and SQL.",
+        },
+        headers=RECRUITER_HEADERS,
+    )
+
+    assert create_response.status_code == 201
+    job = create_response.json()["job"]
+    job_id = job["job_id"]
+
+    job_service._jobs_db[job_id]["description_text"] = (
+        "Required skills: Python, SQL, and FastAPI. Preferred skills: Docker."
+    )
+
+    reprocess_response = client.post(
+        f"/api/v1/jobs/{job_id}/reprocess",
+        headers=RECRUITER_HEADERS,
+    )
+
+    assert reprocess_response.status_code == 200
+    refreshed = reprocess_response.json()["job"]
+    assert refreshed["required_skills"] == ["python", "fastapi"]
+    assert refreshed["preferred_skills"] == ["docker"]
+    assert refreshed["requirement_version"] >= 2
+
+
+def test_job_listing_returns_next_page_token():
+    first_job = client.post(
+        "/api/v1/jobs",
+        json={
+            "title": "Search Engineer",
+            "source_type": "TEXT",
+            "description_text": "Required skills: Python and FAISS.",
+        },
+        headers=RECRUITER_HEADERS,
+    )
+    second_job = client.post(
+        "/api/v1/jobs",
+        json={
+            "title": "ML Engineer",
+            "source_type": "TEXT",
+            "description_text": "Required skills: Python and spaCy.",
+        },
+        headers=RECRUITER_HEADERS,
+    )
+
+    assert first_job.status_code == 201
+    assert second_job.status_code == 201
+
+    list_response = client.get("/api/v1/jobs?limit=1", headers=RECRUITER_HEADERS)
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert len(payload["items"]) == 1
+    assert payload["next_page_token"]
+
+    next_page_response = client.get(
+        f"/api/v1/jobs?limit=1&page_token={payload['next_page_token']}",
+        headers=RECRUITER_HEADERS,
+    )
+    assert next_page_response.status_code == 200
+    assert len(next_page_response.json()["items"]) == 1
+
+
+def test_job_listing_filters_by_status():
+    response = client.get("/api/v1/jobs?status=ACTIVE", headers=RECRUITER_HEADERS)
+
+    assert response.status_code == 200
+    assert all(item["status"] == "ACTIVE" for item in response.json()["items"])

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, status
 from typing import Optional
 
-from app.common.schemas import JobCreate, JobResponse, JobListResponse, JobResponseData
+from app.common.schemas import JobCreate, JobUpdate, JobResponse, JobListResponse, JobRequirementsResponse
 from app.common.context import get_request_id
 from app.api.auth import get_current_user
 from app.modules.job.service import JobService
@@ -24,7 +24,7 @@ def list_jobs(
     created_after: Optional[str] = Query(None, description="Filter jobs created after ISO timestamp"),
     current_user=Depends(get_current_user)
 ):
-    items = JobService.list_jobs(
+    items, next_page_token = JobService.list_jobs(
         status=status,
         limit=limit,
         page_token=page_token,
@@ -33,7 +33,7 @@ def list_jobs(
     return JobListResponse(
         request_id=get_request_id(),
         items=items,
-        next_page_token=None
+        next_page_token=next_page_token
     )
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -46,7 +46,23 @@ def get_job(job_id: str, current_user=Depends(get_current_user)):
 
 @router.get("/{job_id}/requirements")
 def get_job_requirements(job_id: str, current_user=Depends(get_current_user)):
-    return {
-        "request_id": get_request_id(),
-        "job_requirements": JobService.get_requirements(job_id)
-    }
+    return JobRequirementsResponse(
+        request_id=get_request_id(),
+        job_requirements=JobService.get_requirements(job_id)
+    )
+
+@router.patch("/{job_id}", response_model=JobResponse)
+def update_job(job_id: str, data: JobUpdate, current_user=Depends(get_current_user)):
+    job_data = JobService.update_job(job_id, data)
+    return JobResponse(
+        request_id=get_request_id(),
+        job=job_data
+    )
+
+@router.post("/{job_id}/reprocess", response_model=JobResponse)
+def reprocess_job(job_id: str, current_user=Depends(get_current_user)):
+    job_data = JobService.reprocess_job(job_id)
+    return JobResponse(
+        request_id=get_request_id(),
+        job=job_data
+    )
