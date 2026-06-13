@@ -54,6 +54,13 @@ class JobCreate(BaseModelWithConfig):
     location: Optional[str] = None
     employment_type: Optional[str] = None
 
+class JobUpdate(BaseModelWithConfig):
+    title: Optional[str] = None
+    description_text: Optional[str] = None
+    location: Optional[str] = None
+    employment_type: Optional[str] = None
+    status: Optional[JobStatus] = None
+
 class JobResponseData(BaseModelWithConfig):
     job_id: str
     title: str
@@ -63,6 +70,12 @@ class JobResponseData(BaseModelWithConfig):
     confidence_score: float
     created_at: str
     updated_at: Optional[str] = None
+    description_text: Optional[str] = None
+    location: Optional[str] = None
+    employment_type: Optional[str] = None
+    role_intelligence: Dict[str, Any] = Field(default_factory=dict)
+    embedding_metadata: Dict[str, Any] = Field(default_factory=dict)
+    requirement_version: int = 1
 
 class JobResponse(BaseModelWithConfig):
     request_id: str
@@ -79,6 +92,29 @@ class JobListResponse(BaseModelWithConfig):
     request_id: str
     items: List[JobListItem]
     next_page_token: Optional[str] = None
+
+class JobRequirementItem(BaseModelWithConfig):
+    requirement_type: str
+    canonical_value: str
+    source_text: str
+    source_span_start: Optional[int] = None
+    source_span_end: Optional[int] = None
+    confidence_score: float
+
+class JobRequirementsData(BaseModelWithConfig):
+    job_id: str
+    required_skills: List[str] = Field(default_factory=list)
+    preferred_skills: List[str] = Field(default_factory=list)
+    confidence_score: float
+    role_intelligence: Dict[str, Any] = Field(default_factory=dict)
+    requirement_evidence: List[JobRequirementItem] = Field(default_factory=list)
+    embedding_metadata: Dict[str, Any] = Field(default_factory=dict)
+    updated_at: Optional[str] = None
+    requirement_version: int = 1
+
+class JobRequirementsResponse(BaseModelWithConfig):
+    request_id: str
+    job_requirements: JobRequirementsData
 
 # Candidates
 class CandidateCreate(BaseModelWithConfig):
