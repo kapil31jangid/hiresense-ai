@@ -43,3 +43,10 @@ def get_job(job_id: str, current_user=Depends(get_current_user)):
         request_id=get_request_id(),
         job=job_data
     )
+
+@router.get("/{job_id}/requirements")
+def get_job_requirements(job_id: str, current_user=Depends(get_current_user)):
+    return {
+        "request_id": get_request_id(),
+        "job_requirements": JobService.get_requirements(job_id)
+    }

@@ -1,5 +1,5 @@
-from typing import List, Optional, Dict
-from datetime import datetime
+from typing import List, Optional, Dict, Any, Tuple
+from datetime import datetime, timezone
 import re
 
 from app.common.schemas import JobCreate, JobResponseData, JobListItem, JobStatus
@@ -16,56 +16,293 @@ _jobs_db: Dict[str, Dict] = {
         "confidence_score": 0.93,
         "created_at": "2026-05-27T14:30:00Z",
         "updated_at": "2026-05-27T14:45:00Z",
-        "candidate_count": 42
+        "candidate_count": 42,
+        "description_text": (
+            "We are hiring a Senior Backend Engineer with strong Python, FastAPI, "
+            "PostgreSQL, and distributed systems experience."
+        )
     }
 }
+_job_requirements_db: Dict[str, List[Dict[str, Any]]] = {
+    "JOB_0000001": [
+        {
+            "requirement_type": "REQUIRED_SKILL",
+            "canonical_value": "python",
+            "source_text": "strong Python, FastAPI, PostgreSQL",
+            "source_span_start": 53,
+            "source_span_end": 88,
+            "confidence_score": 0.95,
+        },
+        {
+            "requirement_type": "REQUIRED_SKILL",
+            "canonical_value": "fastapi",
+            "source_text": "strong Python, FastAPI, PostgreSQL",
+            "source_span_start": 53,
+            "source_span_end": 88,
+            "confidence_score": 0.95,
+        },
+        {
+            "requirement_type": "REQUIRED_SKILL",
+            "canonical_value": "postgresql",
+            "source_text": "strong Python, FastAPI, PostgreSQL",
+            "source_span_start": 53,
+            "source_span_end": 88,
+            "confidence_score": 0.95,
+        },
+        {
+            "requirement_type": "PREFERRED_SKILL",
+            "canonical_value": "distributed_systems",
+            "source_text": "distributed systems experience",
+            "source_span_start": 94,
+            "source_span_end": 124,
+            "confidence_score": 0.82,
+        },
+    ]
+}
 _job_counter = 1
+
+_SKILL_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "python": ("python", "python3", "python 3"),
+    "fastapi": ("fastapi", "fast api"),
+    "postgresql": ("postgresql", "postgres", "postgreSQL", "psql"),
+    "spacy": ("spacy", "spaCy"),
+    "faiss": ("faiss", "facebook ai similarity search"),
+    "react": ("react", "react.js", "reactjs"),
+    "next.js": ("next.js", "nextjs", "next js"),
+    "docker": ("docker", "containerization", "containers"),
+    "aws": ("aws", "amazon web services"),
+    "distributed_systems": ("distributed systems", "distributed system", "distributed architecture"),
+    "machine_learning": ("machine learning", "ml"),
+    "nlp": ("nlp", "natural language processing"),
+}
+
+_REQUIRED_CUES = (
+    "required",
+    "must have",
+    "must-have",
+    "need",
+    "needs",
+    "required skills",
+    "requirements",
+    "qualification",
+    "qualifications",
+    "strong",
+    "proficient",
+    "expertise",
+    "experience with",
+    "experience in",
+    "looking for",
+)
+_PREFERRED_CUES = (
+    "preferred",
+    "nice to have",
+    "nice-to-have",
+    "good to have",
+    "bonus",
+    "plus",
+    "advantage",
+)
+_RESPONSIBILITY_CUES = ("responsibilities", "responsible for", "build", "develop", "maintain", "own", "design")
+_QUALIFICATION_CUES = ("qualification", "degree", "years", "experience", "background")
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value or "").strip()
+
+
+def _iter_evidence_units(description_text: str) -> List[Tuple[str, int, int]]:
+    units: List[Tuple[str, int, int]] = []
+    pattern = re.compile(r".+?(?:(?<=[.;])\s+|\n|$)", re.DOTALL)
+    for match in pattern.finditer(description_text):
+        source_text = _normalize_text(match.group(0).strip(" \n\t.;:"))
+        if source_text:
+            units.append((source_text, match.start(), match.end()))
+    return units
+
+
+def _contains_cue(text: str, cues: Tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(cue in lowered for cue in cues)
+
+
+def _classify_skill_requirement(text: str) -> Optional[str]:
+    if _contains_cue(text, _PREFERRED_CUES):
+        return "PREFERRED_SKILL"
+    if _contains_cue(text, _REQUIRED_CUES):
+        return "REQUIRED_SKILL"
+    return None
+
+
+def _find_skills(source_text: str) -> List[str]:
+    found: List[str] = []
+    lowered = source_text.lower()
+    for canonical_skill, aliases in _SKILL_ALIASES.items():
+        for alias in aliases:
+            pattern = rf"(?<![a-z0-9]){re.escape(alias.lower())}(?![a-z0-9])"
+            if re.search(pattern, lowered):
+                found.append(canonical_skill)
+                break
+    return found
+
+
+def _append_unique(values: List[str], value: str) -> None:
+    if value not in values:
+        values.append(value)
+
+
+def _build_embedding_metadata(job_id: str, title: str, required_skills: List[str], preferred_skills: List[str]) -> Dict[str, Any]:
+    structured_text = " ".join([title, " ".join(required_skills), " ".join(preferred_skills)]).strip()
+    return {
+        "entity_type": "JOB",
+        "entity_id": job_id,
+        "embedding_version": "job_requirements_v1",
+        "status": "STALE",
+        "source_text": structured_text,
+    }
+
+
+def _parse_job_description(data: JobCreate) -> Dict[str, Any]:
+    description_text = _normalize_text(data.description_text)
+    if len(description_text) < 20:
+        raise HireSenseException(
+            status_code=400,
+            code="INVALID_REQUEST",
+            message="description_text must contain enough detail to parse job requirements.",
+            details={"field": "description_text"},
+        )
+
+    required_skills: List[str] = []
+    preferred_skills: List[str] = []
+    evidence: List[Dict[str, Any]] = []
+    responsibilities: List[str] = []
+    qualifications: List[str] = []
+
+    for source_text, span_start, span_end in _iter_evidence_units(data.description_text):
+        lowered = source_text.lower()
+        requirement_type = _classify_skill_requirement(source_text)
+        skills = _find_skills(source_text)
+
+        if requirement_type:
+            for skill in skills:
+                if requirement_type == "REQUIRED_SKILL":
+                    _append_unique(required_skills, skill)
+                else:
+                    _append_unique(preferred_skills, skill)
+                evidence.append({
+                    "requirement_type": requirement_type,
+                    "canonical_value": skill,
+                    "source_text": source_text,
+                    "source_span_start": span_start,
+                    "source_span_end": span_end,
+                    "confidence_score": 0.95 if requirement_type == "REQUIRED_SKILL" else 0.88,
+                })
+
+        if _contains_cue(lowered, _RESPONSIBILITY_CUES):
+            responsibilities.append(source_text)
+            evidence.append({
+                "requirement_type": "RESPONSIBILITY",
+                "canonical_value": source_text,
+                "source_text": source_text,
+                "source_span_start": span_start,
+                "source_span_end": span_end,
+                "confidence_score": 0.80,
+            })
+        if _contains_cue(lowered, _QUALIFICATION_CUES):
+            qualifications.append(source_text)
+            evidence.append({
+                "requirement_type": "EXPERIENCE",
+                "canonical_value": source_text,
+                "source_text": source_text,
+                "source_span_start": span_start,
+                "source_span_end": span_end,
+                "confidence_score": 0.78,
+            })
+
+    # Keep explicit preferred evidence from general prose when the cue is nearby.
+    for skill in list(required_skills):
+        if skill in preferred_skills:
+            preferred_skills.remove(skill)
+
+    confidence_score = 0.55
+    if evidence:
+        confidence_score += 0.20
+    if required_skills:
+        confidence_score += 0.15
+    if responsibilities or qualifications:
+        confidence_score += 0.05
+
+    return {
+        "required_skills": required_skills,
+        "preferred_skills": preferred_skills,
+        "requirement_evidence": evidence,
+        "role_intelligence": {
+            "responsibilities": responsibilities,
+            "qualifications": qualifications,
+            "requirement_count": len(evidence),
+        },
+        "confidence_score": round(min(confidence_score, 0.95), 2),
+    }
+
+
+def _store_job_record(job_id: str, job_record: Dict[str, Any], requirement_evidence: List[Dict[str, Any]]) -> None:
+    _jobs_db[job_id] = job_record
+    _job_requirements_db[job_id] = requirement_evidence
 
 class JobService:
     @staticmethod
     def create_job(data: JobCreate) -> JobResponseData:
         global _job_counter
         # Basic validation
-        if not data.title.strip() or not data.description_text.strip():
+        if not _normalize_text(data.title) or not _normalize_text(data.description_text):
             raise HireSenseException(
                 status_code=400,
                 code="INVALID_REQUEST",
                 message="Title and description_text are required."
             )
-        
-        # Simple skill parsing from text
-        desc = data.description_text.lower()
-        skills_map = ["python", "fastapi", "postgresql", "spacy", "faiss", "react", "next.js", "docker", "aws"]
-        required = []
-        preferred = []
-        
-        for skill in skills_map:
-            if re.search(rf"\b{re.escape(skill)}\b", desc):
-                if len(required) < 3:
-                    required.append(skill)
-                else:
-                    preferred.append(skill)
-        
-        if "distributed systems" in desc or "distributed_systems" in desc:
-            preferred.append("distributed_systems")
 
         _job_counter += 1
         job_id = f"JOB_{_job_counter:07d}"
-        
-        now_str = datetime.utcnow().isoformat() + "Z"
+        parsed = _parse_job_description(data)
+        now_str = _utc_now()
+
         job_record = {
             "job_id": job_id,
-            "title": data.title,
+            "title": _normalize_text(data.title),
+            "description_text": _normalize_text(data.description_text),
             "status": JobStatus.ACTIVE,
-            "required_skills": required if required else ["python"],
-            "preferred_skills": preferred,
-            "confidence_score": 0.90,
+            "location": data.location,
+            "employment_type": data.employment_type,
+            "required_skills": parsed["required_skills"],
+            "preferred_skills": parsed["preferred_skills"],
+            "confidence_score": parsed["confidence_score"],
             "created_at": now_str,
             "updated_at": now_str,
-            "candidate_count": 0
+            "candidate_count": 0,
+            "role_intelligence": parsed["role_intelligence"],
+            "embedding_metadata": _build_embedding_metadata(
+                job_id,
+                data.title,
+                parsed["required_skills"],
+                parsed["preferred_skills"],
+            ),
         }
-        
-        _jobs_db[job_id] = job_record
+
+        try:
+            _store_job_record(job_id, job_record, parsed["requirement_evidence"])
+        except HireSenseException:
+            raise
+        except Exception as exc:
+            raise HireSenseException(
+                status_code=503,
+                code="JOB_STORAGE_FAILED",
+                message="Job profile could not be stored after parsing.",
+                details={"job_id": job_id, "reason": str(exc)},
+            ) from exc
+
         return JobResponseData(**job_record)
 
     @staticmethod
@@ -101,3 +338,24 @@ class JobService:
                 message=f"Job with ID {job_id} was not found."
             )
         return JobResponseData(**_jobs_db[job_id])
+
+    @staticmethod
+    def get_requirements(job_id: str) -> Dict[str, Any]:
+        if job_id not in _jobs_db:
+            raise HireSenseException(
+                status_code=404,
+                code="JOB_NOT_FOUND",
+                message=f"Job with ID {job_id} was not found."
+            )
+
+        job = _jobs_db[job_id]
+        return {
+            "job_id": job["job_id"],
+            "required_skills": job.get("required_skills", []),
+            "preferred_skills": job.get("preferred_skills", []),
+            "confidence_score": job.get("confidence_score", 0.0),
+            "role_intelligence": job.get("role_intelligence", {}),
+            "requirement_evidence": _job_requirements_db.get(job_id, []),
+            "embedding_metadata": job.get("embedding_metadata", {}),
+            "updated_at": job.get("updated_at"),
+        }
