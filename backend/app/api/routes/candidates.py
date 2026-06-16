@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, Query, File, UploadFile, Form, status
 from typing import Optional
 
 from app.common.schemas import (
-    CandidateCreate, CandidateResponse, CandidateListResponse, CandidateDetailResponse,
-    SourceType
+    CandidateCreate, CandidateUpdate, CandidateResponse, CandidateListResponse, 
+    CandidateDetailResponse, CandidateEvidenceResponse, SourceType
 )
 from app.common.context import get_request_id
 from app.api.auth import get_current_user
@@ -63,6 +63,41 @@ def list_candidates(
 def get_candidate(candidate_id: str, current_user=Depends(get_current_user)):
     cand_detail = CandidateService.get_candidate_detail(candidate_id)
     return CandidateDetailResponse(
+        request_id=get_request_id(),
+        candidate=cand_detail
+    )
+
+@router.patch("/{candidate_id}", response_model=CandidateResponse)
+def update_candidate(
+    candidate_id: str,
+    data: CandidateUpdate,
+    current_user=Depends(get_current_user)
+):
+    cand_detail = CandidateService.update_candidate(candidate_id, data)
+    return CandidateResponse(
+        request_id=get_request_id(),
+        candidate=cand_detail
+    )
+
+@router.get("/{candidate_id}/resume-evidence", response_model=CandidateEvidenceResponse)
+def get_candidate_resume_evidence(
+    candidate_id: str,
+    current_user=Depends(get_current_user)
+):
+    evidence = CandidateService.get_resume_evidence(candidate_id)
+    return CandidateEvidenceResponse(
+        request_id=get_request_id(),
+        candidate_id=candidate_id,
+        evidence=evidence
+    )
+
+@router.post("/{candidate_id}/reprocess", response_model=CandidateResponse)
+def reprocess_candidate(
+    candidate_id: str,
+    current_user=Depends(get_current_user)
+):
+    cand_detail = CandidateService.reprocess_candidate(candidate_id)
+    return CandidateResponse(
         request_id=get_request_id(),
         candidate=cand_detail
     )
