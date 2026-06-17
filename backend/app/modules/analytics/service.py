@@ -5,9 +5,19 @@ from app.modules.candidate.service import _candidates_db
 from app.modules.ranking.service import _rankings_db
 from app.modules.alerts.service import _alerts_db
 
+_analytics_last_updated_at: str = "2026-05-27T15:30:00Z"
+_freshness_status: FreshnessStatus = FreshnessStatus.FRESH
+
 class AnalyticsService:
     @staticmethod
+    def update_freshness(last_updated_at: str, status: FreshnessStatus):
+        global _analytics_last_updated_at, _freshness_status
+        _analytics_last_updated_at = last_updated_at
+        _freshness_status = status
+
+    @staticmethod
     def get_dashboard_summary(request_id: str) -> AnalyticsResponse:
+        global _analytics_last_updated_at, _freshness_status
         # Dynamic computation from in-memory stores
         active_jobs = len(_jobs_db)
         parsed_candidates = len(_candidates_db)
@@ -26,12 +36,10 @@ class AnalyticsService:
                     
         avg_fit = round(sum(fit_scores) / len(fit_scores), 2) if fit_scores else 0.74
         
-        now_str = datetime.utcnow().isoformat() + "Z"
-        
         return AnalyticsResponse(
             request_id=request_id,
-            analytics_last_updated_at=now_str,
-            freshness_status=FreshnessStatus.FRESH,
+            analytics_last_updated_at=_analytics_last_updated_at,
+            freshness_status=_freshness_status,
             summary=AnalyticsSummary(
                 active_jobs=active_jobs,
                 parsed_candidates=parsed_candidates,
