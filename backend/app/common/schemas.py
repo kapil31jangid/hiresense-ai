@@ -258,6 +258,47 @@ class SemanticSearchResponse(BaseModelWithConfig):
     job_id: str
     items: List[SemanticSearchItem]
 
+class SemanticJobSearchRequest(BaseModelWithConfig):
+    candidate_id: str
+    top_k: int = 25
+
+class SemanticJobSearchItem(BaseModelWithConfig):
+    job_id: str
+    semantic_score: float
+    embedding_version: str
+
+class SemanticJobSearchResponse(BaseModelWithConfig):
+    request_id: str
+    candidate_id: str
+    items: List[SemanticJobSearchItem]
+
+class EmbeddingsRefreshRequest(BaseModelWithConfig):
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
+
+class EmbeddingsRefreshResponse(BaseModelWithConfig):
+    request_id: str
+    status: str
+    refreshed_count: int
+
+class IndexesRebuildRequest(BaseModelWithConfig):
+    entity_type: Optional[str] = None
+
+class IndexesRebuildResponse(BaseModelWithConfig):
+    request_id: str
+    status: str
+    rebuilt_indexes: List[str]
+
+class IndexStatusItem(BaseModelWithConfig):
+    status: str
+    vector_count: int
+    embedding_version: str
+    last_rebuilt_at: Optional[str] = None
+
+class IndexesStatusResponse(BaseModelWithConfig):
+    request_id: str
+    indexes: Dict[str, IndexStatusItem]
+
 # Analytics
 class AnalyticsSummary(BaseModelWithConfig):
     active_jobs: int

@@ -90,14 +90,15 @@ def _build_candidate_source_text(
     source_text: Optional[str] = None,
     source_bytes: Optional[bytes] = None,
 ) -> str:
+    structured_parts: List[str] = []
+    
     if source_text:
-        return _normalize_text(source_text)
-    if source_bytes:
+        structured_parts.append(_normalize_text(source_text))
+    elif source_bytes:
         extracted = _extract_text_from_bytes(source_bytes)
         if extracted:
-            return extracted
+            structured_parts.append(extracted)
 
-    structured_parts: List[str] = []
     if data.source_data:
         profile = data.source_data.get("profile") or {}
         for key in ("summary", "headline", "bio"):
