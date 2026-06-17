@@ -404,6 +404,25 @@ class CandidateService:
         
         _candidates_db[candidate_id] = cand_record
         _candidate_evidence_db[candidate_id] = evidence
+        
+        # Alert Hooks
+        from app.modules.alerts.service import AlertService
+        from app.common.schemas import AlertSeverity
+        if cand_record["parsing_status"] == "FAILED":
+            AlertService.trigger_alert(
+                alert_type="RESUME_PARSE_FAILED",
+                condition_key=f"RESUME_PARSE_FAILED:{candidate_id}",
+                source_entity_id=candidate_id,
+                title=f"Resume parsing failed for candidate {candidate_id}",
+                message="The resume file could not be parsed into a valid candidate profile.",
+                severity=AlertSeverity.HIGH,
+                candidate_id=candidate_id
+            )
+        else:
+            AlertService.clear_alert(f"RESUME_PARSE_FAILED:{candidate_id}", "Reprocess succeeded.")
+            
+        AlertService.clear_alert(f"STALE_PROFILE:CANDIDATE:{candidate_id}", "Candidate profile updated, no longer stale.")
+        
         return _candidate_record_to_response(cand_record)
 
     @staticmethod
@@ -455,6 +474,25 @@ class CandidateService:
         cand["embedding_metadata"]["updated_at"] = now_str
         
         _candidates_db[candidate_id] = cand
+        
+        # Alert Hooks
+        from app.modules.alerts.service import AlertService
+        from app.common.schemas import AlertSeverity
+        if cand.get("parsing_status") == "FAILED":
+            AlertService.trigger_alert(
+                alert_type="RESUME_PARSE_FAILED",
+                condition_key=f"RESUME_PARSE_FAILED:{candidate_id}",
+                source_entity_id=candidate_id,
+                title=f"Resume parsing failed for candidate {candidate_id}",
+                message="The resume file could not be parsed into a valid candidate profile.",
+                severity=AlertSeverity.HIGH,
+                candidate_id=candidate_id
+            )
+        else:
+            AlertService.clear_alert(f"RESUME_PARSE_FAILED:{candidate_id}", "Reprocess succeeded.")
+            
+        AlertService.clear_alert(f"STALE_PROFILE:CANDIDATE:{candidate_id}", "Candidate profile updated, no longer stale.")
+        
         return _candidate_record_to_response(cand)
 
     @staticmethod
@@ -585,4 +623,23 @@ class CandidateService:
         
         _candidates_db[candidate_id] = updated_cand
         _candidate_evidence_db[candidate_id] = evidence
+        
+        # Alert Hooks
+        from app.modules.alerts.service import AlertService
+        from app.common.schemas import AlertSeverity
+        if updated_cand["parsing_status"] == "FAILED":
+            AlertService.trigger_alert(
+                alert_type="RESUME_PARSE_FAILED",
+                condition_key=f"RESUME_PARSE_FAILED:{candidate_id}",
+                source_entity_id=candidate_id,
+                title=f"Resume parsing failed for candidate {candidate_id}",
+                message="The resume file could not be parsed into a valid candidate profile.",
+                severity=AlertSeverity.HIGH,
+                candidate_id=candidate_id
+            )
+        else:
+            AlertService.clear_alert(f"RESUME_PARSE_FAILED:{candidate_id}", "Reprocess succeeded.")
+            
+        AlertService.clear_alert(f"STALE_PROFILE:CANDIDATE:{candidate_id}", "Candidate profile updated, no longer stale.")
+        
         return _candidate_record_to_response(updated_cand)

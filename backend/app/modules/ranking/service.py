@@ -187,6 +187,56 @@ def _run_ranking_scoring(job_id: str, candidate_ids: List[str]) -> List[Dict[str
     return candidates_scored
 
 
+def _evaluate_ranking_alerts(ranking_id: str, job_id: str, candidates: List[Dict[str, Any]]):
+    from app.modules.alerts.service import AlertService
+    from app.modules.job.service import _jobs_db
+    from app.common.schemas import AlertSeverity
+    
+    # 1. Low Confidence Ranking
+    any_low_conf = any(c.get("confidence_score", 1.0) < 0.65 for c in candidates)
+    if any_low_conf:
+        job_title = _jobs_db.get(job_id, {}).get("title", "Job") if job_id else "Job"
+        AlertService.trigger_alert(
+            alert_type="LOW_CONFIDENCE_RANKING",
+            condition_key=f"LOW_CONFIDENCE_RANKING:{ranking_id}",
+            source_entity_id=ranking_id,
+            title=f"Ranking confidence is low for {job_title}",
+            message="Required skill evidence is incomplete for top candidates.",
+            severity=AlertSeverity.HIGH,
+            job_id=job_id,
+            ranking_id=ranking_id
+        )
+    else:
+        AlertService.clear_alert(f"LOW_CONFIDENCE_RANKING:{ranking_id}", "Ranking refreshed and all confidence scores >= 0.65.")
+        
+    # 2. Ranking Anomaly
+    has_anomaly = False
+    anomaly_msg = ""
+    if candidates:
+        top_cand = candidates[0]
+        if top_cand.get("confidence_score", 1.0) < 0.65:
+            has_anomaly = True
+            anomaly_msg = "Top results collapsed into low-confidence scores."
+        elif len(candidates) >= 3:
+            fit_scores = [c.get("fit_score", 0.0) for c in candidates]
+            if len(set(fit_scores)) == 1:
+                has_anomaly = True
+                anomaly_msg = "Ranking distribution deviates from expected thresholds (score collapse)."
+                
+    if has_anomaly:
+        AlertService.trigger_alert(
+            alert_type="RANKING_ANOMALY",
+            condition_key=f"RANKING_ANOMALY:{ranking_id}",
+            source_entity_id=ranking_id,
+            title=f"Ranking anomaly detected for run {ranking_id}",
+            message=anomaly_msg,
+            severity=AlertSeverity.MEDIUM,
+            job_id=job_id,
+            ranking_id=ranking_id
+        )
+    else:
+        AlertService.clear_alert(f"RANKING_ANOMALY:{ranking_id}", "Anomaly no longer appears in evaluation.")
+
 class RankingService:
     @staticmethod
     def create_ranking(data: RankingCreate) -> RankingResponseData:
@@ -209,6 +259,10 @@ class RankingService:
         }
         
         _rankings_db[ranking_id] = ranking_record
+        
+        # Alert Hook
+        _evaluate_ranking_alerts(ranking_id, data.job_id, candidates_scored)
+        
         return RankingResponseData(
             ranking_id=ranking_id,
             job_id=data.job_id,
@@ -286,6 +340,9 @@ class RankingService:
         record["candidate_count"] = len(candidates_scored)
         record["updated_at"] = now_str
         record["candidates"] = candidates_scored
+        
+        # Alert Hook
+        _evaluate_ranking_alerts(ranking_id, job_id, candidates_scored)
         
         return RankingResponseData(
             ranking_id=ranking_id,
