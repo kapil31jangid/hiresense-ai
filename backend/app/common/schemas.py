@@ -380,10 +380,39 @@ class AIShortlistSummaryResponse(BaseModelWithConfig):
 
 # Pipelines
 class PipelineRunRequest(BaseModelWithConfig):
-    job_id: str
+    job_id: Optional[str] = None
     trigger_mode: str
 
 class PipelineRunResponse(BaseModelWithConfig):
     request_id: str
     pipeline_run_id: str
     status: PipelineStatus
+
+class PipelineRunDetail(BaseModelWithConfig):
+    pipeline_run_id: str
+    job_id: Optional[str] = None
+    trigger_mode: str
+    status: PipelineStatus
+    created_at: str
+    updated_at: Optional[str] = None
+    error_message: Optional[str] = None
+    retry_count: int = 0
+
+class PipelineRunDetailResponse(BaseModelWithConfig):
+    request_id: str
+    run: PipelineRunDetail
+
+class PipelineFailureItem(BaseModelWithConfig):
+    failure_id: str
+    pipeline_run_id: str
+    job_id: Optional[str] = None
+    source_module: str
+    failure_stage: str
+    retry_count: int
+    error_message: str
+    created_at: str
+    resolved: bool = False
+
+class PipelineFailuresResponse(BaseModelWithConfig):
+    request_id: str
+    items: List[PipelineFailureItem]
