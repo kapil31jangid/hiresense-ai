@@ -32,6 +32,7 @@ class TracingMiddleware(BaseHTTPMiddleware):
             logger.info(f"[Request] request_id={request_id} method={request.method} path={request.url.path}")
             
         start_time = time.time()
+        response = None
         try:
             response = await call_next(request)
         except Exception as e:
@@ -39,8 +40,12 @@ class TracingMiddleware(BaseHTTPMiddleware):
             raise e
         finally:
             process_time = time.time() - start_time
-            logger.info(f"[Response] request_id={request_id} status_code={response.status_code} duration={process_time:.4f}s")
+            if response is not None:
+                logger.info(f"[Response] request_id={request_id} status_code={response.status_code} duration={process_time:.4f}s")
+            else:
+                logger.info(f"[Response] request_id={request_id} failed duration={process_time:.4f}s")
             
         # Attach request_id to response headers
-        response.headers["X-Request-ID"] = request_id
+        if response is not None:
+            response.headers["X-Request-ID"] = request_id
         return response
