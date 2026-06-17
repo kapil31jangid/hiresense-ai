@@ -235,6 +235,11 @@ class RankingCandidatesResponse(BaseModelWithConfig):
     ranking_id: str
     items: List[RankingCandidateItem]
 
+class RankingCandidateResponse(BaseModelWithConfig):
+    request_id: str
+    ranking_id: str
+    candidate: RankingCandidateItem
+
 class RankingExportResponse(BaseModelWithConfig):
     request_id: str
     ranking_id: str
