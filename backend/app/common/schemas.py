@@ -122,6 +122,8 @@ class CandidateCreate(BaseModelWithConfig):
     source_type: SourceType
     resume_file_name: Optional[str] = None
     email: Optional[str] = None
+    source_text: Optional[str] = None
+    source_data: Optional[Dict[str, Any]] = None
 
 class CandidateResponseData(BaseModelWithConfig):
     candidate_id: str
@@ -129,6 +131,7 @@ class CandidateResponseData(BaseModelWithConfig):
     normalized_skills: List[str] = Field(default_factory=list)
     years_of_experience: float
     confidence_score: float
+    parsing_status: str = "COMPLETED"
     created_at: str
     updated_at: str
     # Challenge schema fields
@@ -147,6 +150,7 @@ class CandidateListItem(BaseModelWithConfig):
     candidate_id: str
     full_name: str
     confidence_score: float
+    parsing_status: str = "COMPLETED"
     updated_at: str
 
 class CandidateListResponse(BaseModelWithConfig):
@@ -159,6 +163,7 @@ class CandidateDetailData(BaseModelWithConfig):
     full_name: str
     normalized_skills: List[str] = Field(default_factory=list)
     behavioral_signals: List[str] = Field(default_factory=list)
+    parsing_status: str = "COMPLETED"
     updated_at: str
     # Challenge schema fields
     profile: Dict[str, Any] = Field(default_factory=dict)

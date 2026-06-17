@@ -26,14 +26,20 @@ async def upload_candidate_resume(
     file: UploadFile = File(...),
     current_user=Depends(get_current_user)
 ):
-    # Process multipart file upload
+    file_bytes = await file.read()
+    extracted_text = file_bytes.decode("utf-8", errors="ignore")
     data = CandidateCreate(
         full_name=full_name,
         source_type=SourceType.FILE,
         resume_file_name=file.filename,
-        email=email
+        email=email,
+        source_text=extracted_text,
     )
-    cand_data = CandidateService.create_candidate(data)
+    cand_data = CandidateService.create_candidate(
+        data,
+        source_text=extracted_text,
+        source_file_name=file.filename,
+    )
     return CandidateResponse(
         request_id=get_request_id(),
         candidate=cand_data
@@ -47,7 +53,7 @@ def list_candidates(
     page_token: Optional[str] = Query(None),
     current_user=Depends(get_current_user)
 ):
-    items = CandidateService.list_candidates(
+    items, next_page_token = CandidateService.list_candidates(
         job_id=job_id,
         status=status,
         limit=limit,
@@ -56,7 +62,7 @@ def list_candidates(
     return CandidateListResponse(
         request_id=get_request_id(),
         items=items,
-        next_page_token=None
+        next_page_token=next_page_token
     )
 
 @router.get("/{candidate_id}", response_model=CandidateDetailResponse)
