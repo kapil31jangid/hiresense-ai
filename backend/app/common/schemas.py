@@ -350,6 +350,34 @@ class AIExplanationResponse(BaseModelWithConfig):
     explanation: str
     grounding: AIGroundingData
 
+class AIExplanationsResponse(BaseModelWithConfig):
+    request_id: str
+    ranking_id: str
+    items: List[AIExplanationResponse]
+
+class AICompareRequest(BaseModelWithConfig):
+    ranking_id: str
+    candidate_ids: List[str]
+
+class AICompareResponse(BaseModelWithConfig):
+    request_id: str
+    ranking_id: str
+    comparison: str
+    grounding: Dict[str, AIGroundingData]
+
+class AIShortlistSummaryRequest(BaseModelWithConfig):
+    ranking_id: str
+
+class AIShortlistSummaryGrounding(BaseModelWithConfig):
+    candidate_ids: List[str] = Field(default_factory=list)
+    missing_required_skills: List[str] = Field(default_factory=list)
+
+class AIShortlistSummaryResponse(BaseModelWithConfig):
+    request_id: str
+    ranking_id: str
+    summary: str
+    grounding: AIShortlistSummaryGrounding
+
 # Pipelines
 class PipelineRunRequest(BaseModelWithConfig):
     job_id: str
