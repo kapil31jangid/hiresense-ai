@@ -131,6 +131,13 @@ class CandidateResponseData(BaseModelWithConfig):
     confidence_score: float
     created_at: str
     updated_at: str
+    # Challenge schema fields
+    profile: Dict[str, Any] = Field(default_factory=dict)
+    career_history: List[Dict[str, Any]] = Field(default_factory=list)
+    education: List[Dict[str, Any]] = Field(default_factory=list)
+    skills: List[str] = Field(default_factory=list)
+    redrob_signals: List[str] = Field(default_factory=list)
+    embedding_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class CandidateResponse(BaseModelWithConfig):
     request_id: str
@@ -153,10 +160,45 @@ class CandidateDetailData(BaseModelWithConfig):
     normalized_skills: List[str] = Field(default_factory=list)
     behavioral_signals: List[str] = Field(default_factory=list)
     updated_at: str
+    # Challenge schema fields
+    profile: Dict[str, Any] = Field(default_factory=dict)
+    career_history: List[Dict[str, Any]] = Field(default_factory=list)
+    education: List[Dict[str, Any]] = Field(default_factory=list)
+    skills: List[str] = Field(default_factory=list)
+    redrob_signals: List[str] = Field(default_factory=list)
+    embedding_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class CandidateDetailResponse(BaseModelWithConfig):
     request_id: str
     candidate: CandidateDetailData
+
+class CandidateUpdate(BaseModelWithConfig):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    normalized_skills: Optional[List[str]] = None
+    years_of_experience: Optional[float] = None
+    confidence_score: Optional[float] = None
+    profile: Optional[Dict[str, Any]] = None
+    career_history: Optional[List[Dict[str, Any]]] = None
+    education: Optional[List[Dict[str, Any]]] = None
+    skills: Optional[List[str]] = None
+    redrob_signals: Optional[List[str]] = None
+
+class CandidateEvidenceItem(BaseModelWithConfig):
+    candidate_experience_evidence_id: str
+    candidate_id: str
+    evidence_type: str
+    canonical_value: str
+    source_text: str
+    source_span_start: Optional[int] = None
+    source_span_end: Optional[int] = None
+    created_at: str
+
+class CandidateEvidenceResponse(BaseModelWithConfig):
+    request_id: str
+    candidate_id: str
+    evidence: List[CandidateEvidenceItem]
+
 
 # Rankings
 class RankingCreate(BaseModelWithConfig):
