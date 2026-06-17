@@ -318,6 +318,54 @@ class AnalyticsResponse(BaseModelWithConfig):
     freshness_status: FreshnessStatus
     summary: AnalyticsSummary
 
+class RankingQualitySummary(BaseModelWithConfig):
+    ranking_count: int
+    ranked_candidate_count: int
+    average_fit_score: float
+    average_confidence_score: float
+    low_confidence_count: int
+
+class RankingQualityResponse(BaseModelWithConfig):
+    request_id: str
+    analytics_last_updated_at: str
+    freshness_status: FreshnessStatus
+    summary: RankingQualitySummary
+
+class SkillDistributionItem(BaseModelWithConfig):
+    skill_name: str
+    job_count: int
+    candidate_count: int
+
+class SkillDistributionResponse(BaseModelWithConfig):
+    request_id: str
+    analytics_last_updated_at: str
+    freshness_status: FreshnessStatus
+    items: List[SkillDistributionItem]
+
+class CandidateFunnelSummary(BaseModelWithConfig):
+    uploaded_candidates: int
+    parsed_candidates: int
+    ranked_candidates: int
+    shortlisted_candidates: int
+
+class CandidateFunnelResponse(BaseModelWithConfig):
+    request_id: str
+    analytics_last_updated_at: str
+    freshness_status: FreshnessStatus
+    summary: CandidateFunnelSummary
+
+class HiringInsightItem(BaseModelWithConfig):
+    insight_type: str
+    title: str
+    message: str
+    metric_value: Optional[float] = None
+
+class HiringInsightsResponse(BaseModelWithConfig):
+    request_id: str
+    analytics_last_updated_at: str
+    freshness_status: FreshnessStatus
+    items: List[HiringInsightItem]
+
 # Alerts
 class AlertItem(BaseModelWithConfig):
     alert_id: str
