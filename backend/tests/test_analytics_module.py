@@ -28,6 +28,7 @@ from app.modules.analytics.service import AnalyticsService
 from app.modules.candidate.service import _candidates_db
 from app.modules.job.service import _jobs_db
 from app.modules.ranking.service import _rankings_db
+from app.modules.semantic_search.service import _embeddings_db
 
 client = TestClient(app)
 
@@ -106,12 +107,54 @@ def analytics_sandbox():
     _alerts_db["alert_analytics_001"] = {
         "alert_id": "alert_analytics_001",
         "alert_type": "LOW_CONFIDENCE_RANKING",
+        "condition_key": "LOW_CONFIDENCE_RANKING:rank_analytics_001",
+        "source_entity_id": "rank_analytics_001",
         "status": "ACTIVE",
         "severity": "HIGH",
         "title": "Ranking confidence is low",
         "message": "One candidate has low ranking confidence.",
         "created_at": "2026-05-27T15:25:00Z",
         "job_id": "JOB_ANALYTICS_001",
+        "candidate_id": None,
+        "ranking_id": "rank_analytics_001",
+        "acknowledged_at": None,
+        "acknowledged_by": None,
+        "resolved_at": None,
+        "resolved_by": None,
+        "resolution_note": None,
+        "last_evaluated_at": "2026-05-27T15:25:00Z",
+    }
+
+    _embeddings_db.clear()
+    _embeddings_db["emb_job_JOB_ANALYTICS_001"] = {
+        "embedding_id": "emb_job_JOB_ANALYTICS_001",
+        "entity_type": "JOB",
+        "entity_id": "JOB_ANALYTICS_001",
+        "embedding_version": "job_requirements_v1",
+        "status": "READY",
+        "source_hash": "seed_job_hash",
+        "created_at": "2026-05-27T15:00:00Z",
+        "updated_at": "2026-05-27T15:30:00Z",
+    }
+    _embeddings_db["emb_cand_CAND_ANALYTICS_001"] = {
+        "embedding_id": "emb_cand_CAND_ANALYTICS_001",
+        "entity_type": "CANDIDATE",
+        "entity_id": "CAND_ANALYTICS_001",
+        "embedding_version": "candidate_profile_v1",
+        "status": "READY",
+        "source_hash": "seed_candidate_hash_1",
+        "created_at": "2026-05-27T15:00:00Z",
+        "updated_at": "2026-05-27T15:30:00Z",
+    }
+    _embeddings_db["emb_cand_CAND_ANALYTICS_002"] = {
+        "embedding_id": "emb_cand_CAND_ANALYTICS_002",
+        "entity_type": "CANDIDATE",
+        "entity_id": "CAND_ANALYTICS_002",
+        "embedding_version": "candidate_profile_v1",
+        "status": "READY",
+        "source_hash": "seed_candidate_hash_2",
+        "created_at": "2026-05-27T15:00:00Z",
+        "updated_at": "2026-05-27T15:30:00Z",
     }
 
     AnalyticsService.refresh_aggregates("2026-05-27T15:30:00Z", FreshnessStatus.FRESH)
