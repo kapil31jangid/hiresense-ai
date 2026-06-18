@@ -312,6 +312,24 @@ class JobService:
                 details={"job_id": job_id, "reason": str(exc)},
             ) from exc
 
+        # Alert Hooks
+        from app.modules.alerts.service import AlertService
+        from app.common.schemas import AlertSeverity
+        if job_record.get("parsing_status") == "FAILED":
+            AlertService.trigger_alert(
+                alert_type="JOB_PARSE_FAILED",
+                condition_key=f"JOB_PARSE_FAILED:{job_id}",
+                source_entity_id=job_id,
+                title=f"Job parsing failed for job {job_id}",
+                message="The job description could not be parsed into a valid job profile.",
+                severity=AlertSeverity.HIGH,
+                job_id=job_id
+            )
+        else:
+            AlertService.clear_alert(f"JOB_PARSE_FAILED:{job_id}", "Job reprocess succeeded.")
+            
+        AlertService.clear_alert(f"STALE_PROFILE:JOB:{job_id}", "Job profile updated, no longer stale.")
+
         return JobResponseData(**job_record)
 
     @staticmethod
@@ -368,6 +386,25 @@ class JobService:
         job["embedding_metadata"]["updated_at"] = now_str
 
         _store_job_record(job_id, job, parsed["requirement_evidence"])
+
+        # Alert Hooks
+        from app.modules.alerts.service import AlertService
+        from app.common.schemas import AlertSeverity
+        if job.get("parsing_status") == "FAILED":
+            AlertService.trigger_alert(
+                alert_type="JOB_PARSE_FAILED",
+                condition_key=f"JOB_PARSE_FAILED:{job_id}",
+                source_entity_id=job_id,
+                title=f"Job parsing failed for job {job_id}",
+                message="The job description could not be parsed into a valid job profile.",
+                severity=AlertSeverity.HIGH,
+                job_id=job_id
+            )
+        else:
+            AlertService.clear_alert(f"JOB_PARSE_FAILED:{job_id}", "Job reprocess succeeded.")
+            
+        AlertService.clear_alert(f"STALE_PROFILE:JOB:{job_id}", "Job profile updated, no longer stale.")
+
         return JobResponseData(**job)
 
     @staticmethod
@@ -414,6 +451,25 @@ class JobService:
         job["embedding_metadata"]["updated_at"] = now_str
 
         _store_job_record(job_id, job, parsed["requirement_evidence"])
+
+        # Alert Hooks
+        from app.modules.alerts.service import AlertService
+        from app.common.schemas import AlertSeverity
+        if job.get("parsing_status") == "FAILED":
+            AlertService.trigger_alert(
+                alert_type="JOB_PARSE_FAILED",
+                condition_key=f"JOB_PARSE_FAILED:{job_id}",
+                source_entity_id=job_id,
+                title=f"Job parsing failed for job {job_id}",
+                message="The job description could not be parsed into a valid job profile.",
+                severity=AlertSeverity.HIGH,
+                job_id=job_id
+            )
+        else:
+            AlertService.clear_alert(f"JOB_PARSE_FAILED:{job_id}", "Job reprocess succeeded.")
+            
+        AlertService.clear_alert(f"STALE_PROFILE:JOB:{job_id}", "Job profile updated, no longer stale.")
+
         return JobResponseData(**job)
 
     @staticmethod

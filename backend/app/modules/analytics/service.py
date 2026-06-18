@@ -234,13 +234,19 @@ def _ensure_available() -> Dict[str, Any]:
         )
     return _analytics_aggregates
 
-
 class AnalyticsService:
     @staticmethod
     def refresh_aggregates(last_updated_at: str, status: FreshnessStatus) -> None:
         global _analytics_last_updated_at, _freshness_status, _analytics_aggregates
         _analytics_last_updated_at = last_updated_at
         _freshness_status = status
+        
+        from app.modules.alerts.service import AlertService
+        try:
+            AlertService.run_evaluation_sweep()
+        except Exception:
+            pass
+            
         _analytics_aggregates = _build_aggregates()
 
     @staticmethod

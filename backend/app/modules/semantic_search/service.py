@@ -239,6 +239,9 @@ class SemanticSearchService:
                     job["embedding_metadata"]["updated_at"] = now_str
                     job["embedding_metadata"]["source_text"] = source_text
                     
+                    from app.modules.alerts.service import AlertService
+                    AlertService.clear_alert(f"EMBEDDING_FAILED:JOB:{j_id}", "Embedding refresh completed successfully.")
+                    
                     refreshed_count += 1
                 except Exception as e:
                     _embeddings_db[emb_id] = {
@@ -252,6 +255,17 @@ class SemanticSearchService:
                         "updated_at": now_str,
                         "error_message": str(e)
                     }
+                    from app.modules.alerts.service import AlertService
+                    from app.common.schemas import AlertSeverity
+                    AlertService.trigger_alert(
+                        alert_type="EMBEDDING_FAILED",
+                        condition_key=f"EMBEDDING_FAILED:JOB:{j_id}",
+                        source_entity_id=j_id,
+                        title=f"Embedding refresh failed for job {j_id}",
+                        message=f"Vector generation failed during job indexing: {str(e)}",
+                        severity=AlertSeverity.HIGH,
+                        job_id=j_id
+                    )
                     raise HireSenseException(
                         status_code=503,
                         code="EMBEDDING_FAILED",
@@ -296,6 +310,9 @@ class SemanticSearchService:
                     cand["embedding_metadata"]["updated_at"] = now_str
                     cand["embedding_metadata"]["source_text"] = source_text
                     
+                    from app.modules.alerts.service import AlertService
+                    AlertService.clear_alert(f"EMBEDDING_FAILED:CANDIDATE:{c_id}", "Embedding refresh completed successfully.")
+                    
                     refreshed_count += 1
                 except Exception as e:
                     _embeddings_db[emb_id] = {
@@ -309,6 +326,17 @@ class SemanticSearchService:
                         "updated_at": now_str,
                         "error_message": str(e)
                     }
+                    from app.modules.alerts.service import AlertService
+                    from app.common.schemas import AlertSeverity
+                    AlertService.trigger_alert(
+                        alert_type="EMBEDDING_FAILED",
+                        condition_key=f"EMBEDDING_FAILED:CANDIDATE:{c_id}",
+                        source_entity_id=c_id,
+                        title=f"Embedding refresh failed for candidate {c_id}",
+                        message=f"Vector generation failed during candidate indexing: {str(e)}",
+                        severity=AlertSeverity.HIGH,
+                        candidate_id=c_id
+                    )
                     raise HireSenseException(
                         status_code=503,
                         code="EMBEDDING_FAILED",
