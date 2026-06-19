@@ -7,21 +7,53 @@ from functools import lru_cache
 from typing import Any, Dict, Optional, Tuple
 
 
+def _load_dotenv_from_workspace():
+    # Walk up from this file's directory to locate and parse the `.env` file
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(5):
+        env_path = os.path.join(current_dir, ".env")
+        if os.path.isfile(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        if "=" in line:
+                            key, val = line.split("=", 1)
+                            key = key.strip()
+                            val = val.strip()
+                            # Strip quotes if present
+                            if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                                val = val[1:-1]
+                            os.environ[key] = val
+            except Exception:
+                pass
+            break
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir == current_dir:
+            break
+        current_dir = parent_dir
+
+_load_dotenv_from_workspace()
+
+
+
 @dataclass(frozen=True)
 class AppSettings:
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     app_name: str = field(default_factory=lambda: os.getenv("APP_NAME", "HireSense AI"))
+    demo_auth_enabled: str = field(default_factory=lambda: os.getenv("DEMO_AUTH_ENABLED", "true"))
+    use_application_default_credentials: str = field(default_factory=lambda: os.getenv("USE_APPLICATION_DEFAULT_CREDENTIALS", "false"))
     google_cloud_project: str = field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT", ""))
     google_api_key: str = field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
     google_project_id: str = field(default_factory=lambda: os.getenv("GOOGLE_PROJECT_ID", ""))
     google_cloud_region: str = field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_REGION", "asia-south1"))
     gemini_model_name: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"))
     embedding_model_name: str = field(default_factory=lambda: os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"))
-    ai_provider_mode: str = field(default_factory=lambda: os.getenv("AI_PROVIDER_MODE", "mock"))
+    ai_provider_mode: str = field(default_factory=lambda: os.getenv("AI_PROVIDER_MODE", "gemini"))
     firebase_project_id: str = field(default_factory=lambda: os.getenv("FIREBASE_PROJECT_ID", ""))
-    firebase_auth_emulator_host: str = field(default_factory=lambda: os.getenv("FIREBASE_AUTH_EMULATOR_HOST", ""))
-    firestore_emulator_host: str = field(default_factory=lambda: os.getenv("FIRESTORE_EMULATOR_HOST", ""))
     firebase_service_account_json: str = field(default_factory=lambda: os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", ""))
     firebase_api_key: str = field(default_factory=lambda: os.getenv("FIREBASE_API_KEY", ""))
     firebase_app_id: str = field(default_factory=lambda: os.getenv("FIREBASE_APP_ID", ""))
@@ -33,7 +65,6 @@ class AppSettings:
     gcs_bucket_name: str = field(default_factory=lambda: os.getenv("GCS_BUCKET_NAME", ""))
     gcs_credentials_json: str = field(default_factory=lambda: os.getenv("GCS_CREDENTIALS_JSON", ""))
     gcs_region: str = field(default_factory=lambda: os.getenv("GCS_REGION", "asia-south1"))
-    gcs_emulator_host: str = field(default_factory=lambda: os.getenv("GCS_EMULATOR_HOST", ""))
     cloud_run_service_name: str = field(default_factory=lambda: os.getenv("CLOUD_RUN_SERVICE_NAME", ""))
     cloud_run_region: str = field(default_factory=lambda: os.getenv("CLOUD_RUN_REGION", "asia-south1"))
 
@@ -72,7 +103,7 @@ class RuntimeState:
     gcs_ready: bool = False
     gemini_ready: bool = False
     faiss_ready: bool = False
-    database_mode: str = "in_memory"
+    database_mode: str = "not_configured"
     firebase_status: str = "not_configured"
     firestore_status: str = "not_configured"
     gcs_status: str = "not_configured"
@@ -87,7 +118,7 @@ class RuntimeState:
             "firebase_auth": self.firebase_status,
             "firestore": self.firestore_status,
             "postgresql": self.firestore_status,
-            "database": self.database_mode,
+        "database": self.database_mode,
             "gcs": self.gcs_status,
             "object_storage": self.gcs_status,
             "gemini": self.gemini_status,
@@ -97,6 +128,9 @@ class RuntimeState:
 
     def should_use_gemini(self) -> bool:
         return self.settings.ai_provider_mode.lower() == "gemini"
+
+    def should_use_application_default_credentials(self) -> bool:
+        return str(self.settings.use_application_default_credentials).lower() == "true"
 
 
 def _load_service_account_credentials(raw_credentials: Optional[Dict[str, Any]]):
@@ -124,11 +158,12 @@ def _try_initialize_firebase(settings: AppSettings) -> Tuple[bool, str, Any, Any
     firestore_client = None
 
     try:
+        use_adc = str(settings.use_application_default_credentials).lower() == "true"
         if firebase_admin._apps:
             firebase_app = firebase_admin.get_app()
         elif creds_info:
             firebase_app = firebase_admin.initialize_app(credentials.Certificate(creds_info))
-        elif settings.firebase_project_id:
+        elif settings.firebase_project_id and use_adc:
             firebase_app = firebase_admin.initialize_app()
         else:
             return False, "not_configured", None, None
@@ -151,7 +186,9 @@ def _try_initialize_gcs(settings: AppSettings) -> Tuple[bool, str, Any]:
     try:
         if creds is not None:
             client = storage.Client(project=settings.gcs_project_id or settings.google_cloud_project, credentials=creds)
-        elif settings.gcs_project_id or settings.google_cloud_project:
+        elif str(settings.use_application_default_credentials).lower() == "true" and (
+            settings.gcs_project_id or settings.google_cloud_project
+        ):
             client = storage.Client(project=settings.gcs_project_id or settings.google_cloud_project)
         else:
             return False, "not_configured", None
@@ -161,7 +198,7 @@ def _try_initialize_gcs(settings: AppSettings) -> Tuple[bool, str, Any]:
 
 
 def _probe_gemini(settings: AppSettings) -> Tuple[bool, str]:
-    if settings.google_api_key.strip() and settings.gemini_model_name.strip():
+    if settings.ai_provider_mode.lower() == "gemini" and settings.google_api_key.strip() and settings.gemini_model_name.strip():
         return True, "configured"
     return False, "not_configured"
 
@@ -185,7 +222,7 @@ def build_runtime_state() -> RuntimeState:
         gcs_ready=gcs_ready,
         gemini_ready=gemini_ready,
         faiss_ready=True,
-        database_mode="firestore" if firestore_client else "in_memory",
+        database_mode="firestore" if firestore_client else "not_configured",
         firebase_status=firebase_status,
         firestore_status="ready" if firestore_client else firebase_status,
         gcs_status=gcs_status,

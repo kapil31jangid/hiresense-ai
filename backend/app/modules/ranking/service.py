@@ -1,5 +1,6 @@
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+import io
 import os
 import csv
 
@@ -15,24 +16,6 @@ from app.modules.candidate.service import _candidates_db
 
 _rankings_db: Dict[str, Dict] = FirestoreBackedStore("rankings", {})
 _ranking_counter = 0
-
-
-def _sync_export_to_gcs(file_name: str, file_path: str) -> Optional[str]:
-    runtime = build_runtime_state()
-    if not runtime.gcs_ready or runtime.gcs_client is None:
-        return None
-
-    bucket_name = runtime.settings.gcs_bucket_name or runtime.settings.google_cloud_project
-    if not bucket_name:
-        return None
-
-    try:
-        bucket = runtime.gcs_client.bucket(bucket_name)
-        blob = bucket.blob(f"exports/{file_name}")
-        blob.upload_from_filename(file_path, content_type="text/csv")
-        return f"gs://{bucket_name}/exports/{file_name}"
-    except Exception:
-        return None
 
 
 def _run_ranking_scoring(job_id: str, candidate_ids: List[str]) -> List[Dict[str, Any]]:
@@ -366,30 +349,55 @@ class RankingService:
                 message="Ranking run is not completed or failed."
             )
         
-        # Ensure export directory exists
-        exports_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "exports")
-        os.makedirs(exports_dir, exist_ok=True)
-        
         file_name = f"{ranking_id}_shortlist.csv"
-        file_path = os.path.join(exports_dir, file_name)
-        
-        # Write CSV using stored results - DO NOT RECOMPUTE
-        with open(file_path, mode="w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["rank_position", "candidate_id", "fit_score", "confidence_score", "missing_required_skills"])
-            for c in ranking["candidates"]:
-                writer.writerow([
-                    c["rank_position"],
-                    c["candidate_id"],
-                    c["fit_score"],
-                    c["confidence_score"],
-                    ",".join(c["missing_required_skills"])
-                ])
+        csv_buffer = io.StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(["rank_position", "candidate_id", "fit_score", "confidence_score", "missing_required_skills"])
+        for c in ranking["candidates"]:
+            writer.writerow([
+                c["rank_position"],
+                c["candidate_id"],
+                c["fit_score"],
+                c["confidence_score"],
+                ",".join(c["missing_required_skills"])
+            ])
 
-        # Best-effort cloud sync for Google Cloud Storage deployments.
-        _sync_export_to_gcs(file_name, file_path)
-
+        runtime = build_runtime_state()
         now_str = datetime.utcnow().isoformat() + "Z"
+
+        if runtime.gcs_ready and runtime.gcs_client is not None:
+            # Production path: upload to GCS
+            bucket_name = runtime.settings.gcs_bucket_name or runtime.settings.google_cloud_project
+            if not bucket_name:
+                raise HireSenseException(
+                    status_code=503,
+                    code="GCS_NOT_READY",
+                    message="Google Cloud Storage bucket is not configured."
+                )
+            try:
+                bucket = runtime.gcs_client.bucket(bucket_name)
+                blob = bucket.blob(f"exports/{file_name}")
+                blob.upload_from_string(csv_buffer.getvalue(), content_type="text/csv")
+            except Exception as exc:
+                raise HireSenseException(
+                    status_code=503,
+                    code="GCS_EXPORT_FAILED",
+                    message="Ranking export could not be written to Google Cloud Storage.",
+                    details={"reason": str(exc)},
+                ) from exc
+        else:
+            # Local dev fallback: write CSV to backend/exports/ directory
+            # Resolve the exports dir relative to this file's location
+            exports_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "..", "..", "..", "..", "exports"
+            )
+            exports_dir = os.path.normpath(exports_dir)
+            os.makedirs(exports_dir, exist_ok=True)
+            local_path = os.path.join(exports_dir, file_name)
+            with open(local_path, "w", newline="", encoding="utf-8") as f:
+                f.write(csv_buffer.getvalue())
+
         download_url = f"/exports/{file_name}"
         
         return RankingExportResponse(

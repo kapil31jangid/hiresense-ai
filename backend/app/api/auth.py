@@ -34,44 +34,55 @@ def get_current_user(request: Request) -> UserContext:
             code="UNAUTHORIZED",
             message="Invalid Authorization header format. Must be Bearer <token>."
         )
-        
+
     token = parts[1]
-    
-    # Mock authentication token routing
     tenant_id = get_tenant_id() or "tenant_001"
-    if token == "admin_token":
-        return UserContext(user_id="user_admin_001", role="ADMIN", tenant_id=tenant_id)
-    elif token == "recruiter_token":
-        return UserContext(user_id="user_recruiter_001", role="RECRUITER", tenant_id=tenant_id)
 
     runtime = getattr(request.app.state, "runtime", None) or build_runtime_state()
-    if runtime.firebase_ready:
-        try:
-            from firebase_admin import auth as firebase_auth
-        except Exception:
-            firebase_auth = None
-
-        if firebase_auth is not None:
-            try:
-                decoded = firebase_auth.verify_id_token(token, check_revoked=False)
-                user_id = decoded.get("uid") or decoded.get("user_id") or "firebase_user"
-                role = _normalize_role(decoded.get("role") or decoded.get("custom_claims", {}).get("role"))
-                firebase_tenant = decoded.get("tenant_id") or decoded.get("tenantId") or get_tenant_id()
-                tenant_id = firebase_tenant or runtime.settings.firebase_project_id or runtime.settings.google_project_id or "tenant_001"
-                return UserContext(user_id=user_id, role=role, tenant_id=tenant_id)
-            except Exception as exc:
-                raise HireSenseException(
-                    status_code=401,
-                    code="UNAUTHORIZED",
-                    message="Invalid Firebase ID token.",
-                    details={"reason": str(exc)},
-                ) from exc
-
-    raise HireSenseException(
-        status_code=401,
-        code="UNAUTHORIZED",
-        message="Invalid bearer token."
+    environment = getattr(runtime.settings, "environment", "development")
+    demo_auth_enabled = (
+        str(environment).lower() != "production"
+        and str(getattr(runtime.settings, "demo_auth_enabled", "true")).lower() == "true"
     )
+    if demo_auth_enabled:
+        demo_tokens = {
+            "recruiter_token": UserContext("user_recruiter_001", "RECRUITER", tenant_id),
+            "admin_token": UserContext("user_admin_001", "ADMIN", tenant_id),
+        }
+        if token in demo_tokens:
+            return demo_tokens[token]
+
+    if not runtime.firebase_ready:
+        raise HireSenseException(
+            status_code=503,
+            code="FIREBASE_NOT_READY",
+            message="Firebase authentication is not configured."
+        )
+
+    try:
+        from firebase_admin import auth as firebase_auth
+    except Exception as exc:
+        raise HireSenseException(
+            status_code=503,
+            code="FIREBASE_NOT_READY",
+            message="Firebase authentication is not available.",
+            details={"reason": str(exc)},
+        ) from exc
+
+    try:
+        decoded = firebase_auth.verify_id_token(token, check_revoked=False)
+        user_id = decoded.get("uid") or decoded.get("user_id") or "firebase_user"
+        role = _normalize_role(decoded.get("role") or decoded.get("custom_claims", {}).get("role"))
+        firebase_tenant = decoded.get("tenant_id") or decoded.get("tenantId") or get_tenant_id()
+        tenant_id = firebase_tenant or runtime.settings.firebase_project_id or runtime.settings.google_project_id or "tenant_001"
+        return UserContext(user_id=user_id, role=role, tenant_id=tenant_id)
+    except Exception as exc:
+        raise HireSenseException(
+            status_code=401,
+            code="UNAUTHORIZED",
+            message="Invalid Firebase ID token.",
+            details={"reason": str(exc)},
+        ) from exc
 
 def require_admin(request: Request) -> UserContext:
     user = get_current_user(request)

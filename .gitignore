@@ -49,6 +49,7 @@ build/
 coverage/
 htmlcov/
 backend/exports/
+backend/app/exports/
 *.log
 *.sqlite
 *.sqlite3

@@ -102,8 +102,13 @@ export default function RankedShortlistPage() {
     setExportState('loading')
     try {
       const res = await rankingsApi.exportCsv(rankingId)
-      // Follow download_url — backend serves already-computed results, no re-ranking triggered
-      window.location.href = res.download_url
+      // Trigger a standard download of the exported CSV file from the server
+      const a = document.createElement('a')
+      a.href = res.download_url
+      a.download = res.file_name || `${rankingId}_shortlist.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
       setExportState('done')
     } catch (err) {
       setExportState({ error: err })

@@ -1,0 +1,7 @@
+rank_position,candidate_id,fit_score,confidence_score,missing_required_skills
+1,CAND_0000002,0.47,0.92,faiss
+2,CAND_0000001,0.43,0.95,nlp
+3,CAND_0000003,0.38,0.88,"faiss,nlp"
+4,CAND_0000005,0.34,0.68,"fastapi,faiss"
+5,CAND_0000004,0.33,0.84,"fastapi,nlp"
+6,CAND_0000006,0.09,0.94,"python,fastapi,faiss,nlp"
