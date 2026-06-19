@@ -1,0 +1,7 @@
+rank_position,candidate_id,fit_score,confidence_score,missing_required_skills
+1,CAND_0000003,0.62,0.88,postgresql
+2,CAND_0000002,0.36,0.92,"postgresql,docker"
+3,CAND_0000001,0.3,0.95,"postgresql,docker"
+4,CAND_0000004,0.18,0.84,"fastapi,postgresql,docker"
+5,CAND_0000005,0.14,0.68,"fastapi,postgresql,docker"
+6,CAND_0000006,0.04,0.94,"python,fastapi,postgresql,docker"

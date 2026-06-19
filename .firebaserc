@@ -1,5 +1,7 @@
 {
   "projects": {
     "default": "hiresense-ai-kapil"
-  }
+  },
+  "targets": {},
+  "etags": {}
 }

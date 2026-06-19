@@ -1,8 +1,12 @@
 import os
 import tempfile
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
+
+logging.getLogger("faiss.loader").setLevel(logging.WARNING)
 
 from app.api.middleware import TracingMiddleware
 from app.common.context import get_request_id
@@ -15,10 +19,26 @@ from app.api.routes import (
 settings = load_settings()
 runtime_state = build_runtime_state()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Keep startup idempotent while still surfacing runtime wiring in app state.
+    app.state.settings = load_settings()
+    app.state.runtime = build_runtime_state()
+    # Seed demo data into in-memory stores (no-op if data already present)
+    try:
+        from app.demo_seeder import seed_demo_data
+        seed_demo_data()
+    except Exception:
+        pass  # Never block startup due to seeding errors
+    yield
+
+
 app = FastAPI(
     title="HireSense AI API Service",
     description="recruiter-facing communication layer and backend intelligence gateway",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.state.settings = settings
@@ -27,12 +47,6 @@ app.state.runtime = runtime_state
 # Register Tracing and Context Middleware
 app.add_middleware(TracingMiddleware)
 
-
-@app.on_event("startup")
-async def startup_event():
-    # Keep startup idempotent while still surfacing runtime wiring in app state.
-    app.state.settings = load_settings()
-    app.state.runtime = build_runtime_state()
 
 # Custom Exception Handler for App Exceptions
 @app.exception_handler(HireSenseException)
@@ -127,8 +141,6 @@ def _download_export_from_gcs(filename: str) -> str | None:
 # Route to serve exported CSV shortlist files
 @app.get("/exports/{filename}", tags=["Exports"])
 def download_export(filename: str):
-    exports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "exports")
-    file_path = os.path.join(exports_dir, filename)
     gcs_path = _download_export_from_gcs(filename)
     if gcs_path:
         return FileResponse(
@@ -137,19 +149,23 @@ def download_export(filename: str):
             filename=filename
         )
 
-    if not os.path.exists(file_path):
-        # Format error response if export file does not exist
-        req_id = get_request_id()
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content=format_error_response(
-                request_id=req_id,
-                code="EXPORT_FILE_NOT_FOUND",
-                message="The requested export shortlist file was not found."
-            )
+    # Local dev fallback: serve from backend/exports/ directory
+    local_exports_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "exports")
+    local_exports_dir = os.path.normpath(local_exports_dir)
+    local_path = os.path.join(local_exports_dir, filename)
+    if os.path.isfile(local_path):
+        return FileResponse(
+            path=local_path,
+            media_type="text/csv",
+            filename=filename
         )
-    return FileResponse(
-        path=file_path,
-        media_type="text/csv",
-        filename=filename
+
+    req_id = get_request_id()
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content=format_error_response(
+            request_id=req_id,
+            code="EXPORT_FILE_NOT_FOUND",
+            message="The requested export shortlist file was not found."
+        )
     )

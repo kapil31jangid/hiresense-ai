@@ -1,13 +1,17 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import numpy as np
 import faiss
 import pytest
 
 from app.common.schemas import AlertSeverity, AlertStatus, JobStatus, RankingStatus, FreshnessStatus
+from app.main import app
 from app.modules.alerts import service as alerts_service
+from app.modules.ai import service as ai_service
 from app.modules.analytics.service import AnalyticsService
 from app.modules.candidate import service as candidate_service
+from app.modules.data_pipeline import service as pipeline_service
 from app.modules.job import service as job_service
 from app.modules.ranking import service as ranking_service
 from app.modules.semantic_search import service as semantic_search_service
@@ -18,7 +22,158 @@ def _now() -> str:
 
 
 @pytest.fixture(autouse=True)
-def seed_demo_state():
+def seed_demo_state(monkeypatch):
+    class _FakeBlob:
+        def __init__(self, storage: dict, name: str):
+            self._storage = storage
+            self._name = name
+
+        def upload_from_string(self, data: str, content_type: str = "text/plain"):
+            self._storage[self._name] = data.encode("utf-8") if isinstance(data, str) else data
+
+        def upload_from_filename(self, filename: str, content_type: str = "text/plain"):
+            with open(filename, "rb") as f:
+                self._storage[self._name] = f.read()
+
+        def exists(self):
+            return self._name in self._storage
+
+        def download_to_filename(self, filename: str):
+            with open(filename, "wb") as f:
+                f.write(self._storage[self._name])
+
+    class _FakeBucket:
+        def __init__(self, storage: dict):
+            self._storage = storage
+
+        def blob(self, name: str):
+            return _FakeBlob(self._storage, name)
+
+    class _FakeGCSClient:
+        def __init__(self):
+            self._storage = {}
+
+        def bucket(self, bucket_name: str):
+            return _FakeBucket(self._storage)
+
+    def _verify_id_token(token: str, check_revoked: bool = False):
+        mapping = {
+            "recruiter_token": {"uid": "user_recruiter_001", "role": "RECRUITER", "tenant_id": "tenant_001"},
+            "admin_token": {"uid": "user_admin_001", "role": "ADMIN", "tenant_id": "tenant_001"},
+        }
+        if token not in mapping:
+            raise ValueError("Invalid Firebase ID token.")
+        return mapping[token]
+
+    monkeypatch.setattr("firebase_admin.auth.verify_id_token", _verify_id_token, raising=False)
+
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is not None:
+        runtime.firebase_ready = True
+        runtime.firebase_status = "ready"
+        runtime.firestore_ready = True
+        runtime.firestore_status = "ready"
+        runtime.gcs_ready = True
+        runtime.gcs_status = "ready"
+        runtime.gcs_client = _FakeGCSClient()
+
+    fake_runtime = SimpleNamespace(
+        settings=SimpleNamespace(
+            google_api_key="test-gemini-key",
+            gemini_model_name="gemini-1.5-flash",
+            gcs_bucket_name="hiresense-ai",
+            google_cloud_project="hiresense-ai",
+        ),
+        firebase_ready=True,
+        firestore_ready=True,
+        gcs_ready=True,
+        gemini_ready=True,
+        faiss_ready=True,
+        gcs_client=runtime.gcs_client if runtime is not None and runtime.gcs_client is not None else _FakeGCSClient(),
+        should_use_gemini=lambda: True,
+        dependency_statuses=lambda: {
+            "firebase_auth": "ready",
+            "firestore": "ready",
+            "postgresql": "ready",
+            "database": "firestore",
+            "gcs": "ready",
+            "object_storage": "ready",
+            "gemini": "configured",
+            "ai_provider": "configured",
+            "faiss": "ok",
+        },
+    )
+    app.state.runtime = fake_runtime
+
+    memory_only_runtime = SimpleNamespace(firestore_ready=False, firestore_client=None)
+    for store in (
+        job_service._jobs_db,
+        job_service._job_requirements_db,
+        candidate_service._candidates_db,
+        candidate_service._candidate_evidence_db,
+        ranking_service._rankings_db,
+        alerts_service._alerts_db,
+        alerts_service._alert_events_db,
+        semantic_search_service._embeddings_db,
+        semantic_search_service._index_metadata_db,
+        pipeline_service._pipeline_runs_db,
+        pipeline_service._pipeline_failures_db,
+    ):
+        if hasattr(store, "_runtime"):
+            store._runtime = memory_only_runtime
+
+    def _fake_gemini(prompt: str) -> str:
+        lowered = prompt.lower()
+        if "skills_used:" in lowered:
+            confidence_line = next((line for line in prompt.splitlines() if line.startswith("confidence_score:")), "confidence_score: 0")
+            skills_line = next((line for line in prompt.splitlines() if line.startswith("skills_used:")), "skills_used: none")
+            missing_line = next((line for line in prompt.splitlines() if line.startswith("missing_required_skills:")), "missing_required_skills: none")
+            skills = skills_line.split(":", 1)[1].strip()
+            missing = missing_line.split(":", 1)[1].strip()
+            confidence = float(confidence_line.split(":", 1)[1].strip())
+            if missing == "none":
+                missing_text = "No required skills are missing."
+            else:
+                missing_text = f"Missing required skills: {missing}. Note that some parsed resume evidence is partial."
+            confidence_text = ""
+            if confidence < 0.65:
+                confidence_text = " This candidate has a low ranking confidence score. The fit should be manually reviewed before final shortlisting."
+            return f"This candidate has evidence of {skills} experience. {missing_text}{confidence_text}"
+        if "top_candidate:" in lowered:
+            total_line = next((line for line in prompt.splitlines() if line.startswith("total_candidates:")), "total_candidates: 0")
+            top_line = next((line for line in prompt.splitlines() if line.startswith("top_candidate:")), "top_candidate: Candidate")
+            missing_line = next((line for line in prompt.splitlines() if line.startswith("missing_required_skills:")), "missing_required_skills: none")
+            total = total_line.split(":", 1)[1].strip()
+            top = top_line.split(":", 1)[1].strip()
+            missing = missing_line.split(":", 1)[1].strip()
+            missing_text = f" Missing required skills include: {missing}." if missing != "none" else ""
+            warning_text = " Warning: 1 candidate(s) have low parsing confidence and require manual review." if "low_confidence_count: 1" in lowered else ""
+            return (
+                f"This shortlist evaluated {total} candidates. "
+                f"The top candidate is {top}. "
+                f"Manual review is recommended where evidence is partial.{missing_text}{warning_text}"
+            )
+        if "rank=" in prompt:
+            lines = [line for line in prompt.splitlines() if line.startswith("- ")]
+            if len(lines) >= 2:
+                first = lines[0].split("|", 1)[0].replace("- ", "").strip()
+                second = lines[1].split("|", 1)[0].replace("- ", "").strip()
+                return f"{first} ranks higher than {second} because the first profile shows stronger alignment and fewer missing required skills."
+            if lines:
+                first = lines[0].split("|", 1)[0].replace("- ", "").strip()
+                return f"{first} is the strongest candidate in the supplied comparison set."
+        return prompt
+
+    monkeypatch.setattr(ranking_service, "build_runtime_state", lambda: fake_runtime, raising=False)
+    monkeypatch.setattr(semantic_search_service, "build_runtime_state", lambda: fake_runtime, raising=False)
+    monkeypatch.setattr(ai_service, "build_runtime_state", lambda: fake_runtime, raising=False)
+    monkeypatch.setattr(
+        ai_service,
+        "_generate_with_gemini",
+        _fake_gemini,
+        raising=False,
+    )
+
     job_service._jobs_db.clear()
     job_service._job_requirements_db.clear()
     candidate_service._candidates_db.clear()

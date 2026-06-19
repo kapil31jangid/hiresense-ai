@@ -6,7 +6,6 @@ from app.common.schemas import JobCreate, JobUpdate, JobResponseData, JobListIte
 from app.common.errors import HireSenseException
 from app.common.repositories import FirestoreBackedStore
 
-# Firestore-backed job store with no bootstrap data.
 _jobs_db: Dict[str, Dict] = FirestoreBackedStore("jobs", {})
 _job_requirements_db: Dict[str, List[Dict[str, Any]]] = FirestoreBackedStore("job_requirements", {})
 _job_counter = 0

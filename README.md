@@ -38,10 +38,6 @@ backend/
     modules/
     exports/
 frontend/
-docs/
-  Modules/
-  Planning/
-  Rules/
 ```
 
 ## Main Modules
