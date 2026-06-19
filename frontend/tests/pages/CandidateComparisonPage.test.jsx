@@ -117,7 +117,7 @@ describe('CandidateComparisonPage', () => {
     mockFetch()
     renderComparison()
     await waitFor(() => {
-      expect(screen.getByText('python')).toBeInTheDocument()
+      expect(screen.getAllByText('python')).toHaveLength(2)
       expect(screen.getByText('fastapi')).toBeInTheDocument()
     })
   })
