@@ -87,7 +87,8 @@ export default function DashboardPage() {
       )}
 
       {/* Quick links */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {!dLoading && !dError && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Active alerts summary */}
         <div className="card">
           <div className="flex items-center justify-between mb-4">
@@ -153,7 +154,8 @@ export default function DashboardPage() {
             </button>
           </div>
         </div>
-      </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -5,7 +5,7 @@
  * - All requests carry Authorization: Bearer <token> from localStorage.
  * - All responses include request_id for tracing.
  * - Errors are thrown as structured { request_id, error: { code, message, details } }.
- * - This client never calls PostgreSQL, FAISS, or object storage directly.
+ * - This client never talks to backend data stores or vector indexes directly.
  */
 
 const BASE_URL = '/api/v1'
@@ -37,10 +37,22 @@ export async function apiClient(path, options = {}) {
     delete headers['Content-Type']
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers,
-  })
+  let response
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers,
+    })
+  } catch {
+    throw {
+      request_id: null,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: 'The backend is unreachable. Please check the server status.',
+        details: {},
+      },
+    }
+  }
 
   // Network/server completely unreachable — response is empty
   let data
