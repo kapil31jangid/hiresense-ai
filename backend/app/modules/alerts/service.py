@@ -2,49 +2,19 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from app.common.schemas import AlertItem, AlertStatus, AlertSeverity
 from app.common.errors import HireSenseException
+from app.common.repositories import FirestoreBackedStore
 
 # Default freshness threshold for stale profiles
 STALE_THRESHOLD_DAYS = 30
 
-# In-memory DB of alerts
-_alerts_db: Dict[str, Dict] = {
-    "alert_rank_001": {
-        "alert_id": "alert_rank_001",
-        "alert_type": "LOW_CONFIDENCE_RANKING",
-        "condition_key": "LOW_CONFIDENCE_RANKING:rank_001",
-        "source_entity_id": "rank_001",
-        "status": AlertStatus.ACTIVE,
-        "severity": AlertSeverity.HIGH,
-        "title": "Ranking confidence is low for Senior Backend Engineer",
-        "message": "Required skill evidence is incomplete for top candidates.",
-        "created_at": "2026-05-27T15:25:00Z",
-        "job_id": "JOB_0000001",
-        "candidate_id": None,
-        "ranking_id": "rank_001",
-        "acknowledged_at": None,
-        "acknowledged_by": None,
-        "resolved_at": None,
-        "resolved_by": None,
-        "resolution_note": None,
-        "last_evaluated_at": "2026-05-27T15:25:00Z"
-    }
-}
+# Firestore-backed alert store with no bootstrap data.
+_alerts_db: Dict[str, Dict] = FirestoreBackedStore("alerts", {})
 
 # Audit trail of alert lifecycle changes
-_alert_events_db: List[Dict[str, Any]] = [
-    {
-        "event_id": "evt_001",
-        "alert_id": "alert_rank_001",
-        "from_status": None,
-        "to_status": "ACTIVE",
-        "changed_by": "system",
-        "changed_at": "2026-05-27T15:25:00Z",
-        "notes": "Alert created by system evaluation."
-    }
-]
+_alert_events_db: Dict[str, Dict[str, Any]] = FirestoreBackedStore("alert_events", {})
 
-_alert_counter = 1
-_event_counter = 1
+_alert_counter = 0
+_event_counter = 0
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -52,15 +22,16 @@ def _utc_now() -> str:
 def _record_event(alert_id: str, from_status: Optional[str], to_status: str, changed_by: str, changed_at: str, notes: str):
     global _event_counter
     _event_counter += 1
-    _alert_events_db.append({
-        "event_id": f"evt_{_event_counter:03d}",
+    event_id = f"evt_{_event_counter:03d}"
+    _alert_events_db[event_id] = {
+        "event_id": event_id,
         "alert_id": alert_id,
         "from_status": from_status,
         "to_status": to_status,
         "changed_by": changed_by,
         "changed_at": changed_at,
         "notes": notes
-    })
+    }
 
 def _enum_value(val: Any) -> Any:
     return getattr(val, "value", val)

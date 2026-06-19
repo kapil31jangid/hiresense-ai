@@ -13,9 +13,10 @@ from app.modules.job.service import _jobs_db
 from app.modules.candidate.service import _candidates_db
 from app.modules.ranking.service import _rankings_db
 from app.modules.analytics.service import AnalyticsService
+from app.common.repositories import FirestoreBackedStore, FirestoreBackedListStore
 
-_pipeline_runs_db: Dict[str, Dict[str, Any]] = {}
-_pipeline_failures_db: Dict[str, Dict[str, Any]] = {}
+_pipeline_runs_db: Dict[str, Dict[str, Any]] = FirestoreBackedStore("pipeline_runs", {})
+_pipeline_failures_db: Dict[str, Dict[str, Any]] = FirestoreBackedStore("pipeline_failures", {})
 
 _pipeline_counter = 0
 _failure_counter = 0

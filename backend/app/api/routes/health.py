@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from typing import Dict, Any
 
 from app.common.context import get_request_id
 from app.api.auth import get_current_user, UserContext
+from app.common.runtime import build_runtime_state
 
 router = APIRouter()
 
@@ -14,17 +15,12 @@ def get_health():
     }
 
 @router.get("/ready", response_model=Dict[str, Any])
-def get_ready():
-    # Simple dependency status check
+def get_ready(request: Request):
+    runtime = getattr(request.app.state, "runtime", None) or build_runtime_state()
     return {
         "request_id": get_request_id(),
         "status": "ready",
-        "dependencies": {
-            "postgresql": "ok",
-            "faiss": "ok",
-            "object_storage": "ok",
-            "ai_provider": "ok"
-        }
+        "dependencies": runtime.dependency_statuses(),
     }
 
 @router.get("/me", response_model=Dict[str, Any])

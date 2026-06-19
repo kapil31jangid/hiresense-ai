@@ -1,15 +1,87 @@
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from app.common.schemas import (
     AIExplanationRequest, AIExplanationResponse, AIGroundingData, AIExplanationsResponse,
     AICompareRequest, AICompareResponse,
     AIShortlistSummaryRequest, AIShortlistSummaryGrounding, AIShortlistSummaryResponse
 )
 from app.common.errors import HireSenseException
+from app.common.runtime import build_runtime_state
 from app.modules.ranking.service import _rankings_db
 from app.modules.job.service import _jobs_db
 from app.modules.candidate.service import _candidates_db
 
 _explanations_db: Dict[str, Dict[str, AIExplanationResponse]] = {}
+
+
+def _generate_with_gemini(prompt: str) -> Optional[str]:
+    runtime = build_runtime_state()
+    if not runtime.should_use_gemini() or not runtime.gemini_ready or not runtime.settings.google_api_key.strip():
+        return None
+
+    try:
+        import google.generativeai as genai
+    except Exception:
+        return None
+
+    try:
+        genai.configure(api_key=runtime.settings.google_api_key)
+        model = genai.GenerativeModel(runtime.settings.gemini_model_name or "gemini-1.5-flash")
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": 0.2,
+                "top_p": 0.9,
+                "max_output_tokens": 512,
+            },
+        )
+        text = getattr(response, "text", None)
+        return text.strip() if isinstance(text, str) and text.strip() else None
+    except Exception:
+        return None
+
+
+def _build_explanation_prompt(
+    ranking_id: str,
+    candidate_id: str,
+    fit_score: float,
+    confidence_score: float,
+    skills_used: List[str],
+    missing_skills: List[str],
+) -> str:
+    return (
+        "You are a recruiter-trustworthy AI assistant.\n"
+        "Write 2-3 concise sentences explaining why the candidate fits the role.\n"
+        "Use only the supplied evidence. Do not invent any experience, skills, or achievements.\n"
+        "If evidence is missing, say so explicitly. Keep the tone factual and grounded.\n\n"
+        f"ranking_id: {ranking_id}\n"
+        f"candidate_id: {candidate_id}\n"
+        f"fit_score: {fit_score}\n"
+        f"confidence_score: {confidence_score}\n"
+        f"skills_used: {', '.join(skills_used) if skills_used else 'none'}\n"
+        f"missing_required_skills: {', '.join(missing_skills) if missing_skills else 'none'}\n"
+    )
+
+
+def _fallback_explanation(
+    fit_score: float,
+    skills_used: List[str],
+    missing_skills: List[str],
+    confidence_score: float,
+) -> str:
+    skills_str = ", ".join(skills_used) if skills_used else "none of the required skills"
+    explanation = f"This candidate ranks with a fit score of {fit_score} because the profile provides evidence of {skills_str} experience."
+    if missing_skills:
+        explanation += f" However, the following required skills are missing from the parsed profile: {', '.join(missing_skills)}."
+    else:
+        explanation += " No required skills are missing in the current profile."
+
+    if confidence_score >= 0.85:
+        pass
+    elif confidence_score >= 0.65:
+        explanation += " Note that some parsed resume evidence is partial."
+    else:
+        explanation += " This candidate has a low ranking confidence score. The fit should be manually reviewed before final shortlisting."
+    return explanation
 
 class AIService:
     @staticmethod
@@ -73,23 +145,21 @@ class AIService:
         
         fit_score = cand_in_ranking["fit_score"]
         confidence_score = cand_in_ranking["confidence_score"]
-        
-        # Build explanation dynamically
-        skills_str = ", ".join(skills_used) if skills_used else "none of the required skills"
-        explanation = f"This candidate ranks with a fit score of {fit_score} because the profile provides evidence of {skills_str} experience."
-        
-        if missing_skills:
-            explanation += f" However, the following required skills are missing from the parsed profile: {', '.join(missing_skills)}."
-        else:
-            explanation += " No required skills are missing in the current profile."
-            
-        # Confidence-Aware Behavior
-        if confidence_score >= 0.85:
-            pass
-        elif confidence_score >= 0.65:
-            explanation += " Note that some parsed resume evidence is partial."
-        else:
-            explanation += " This candidate has a low ranking confidence score. The fit should be manually reviewed before final shortlisting."
+
+        gemini_prompt = _build_explanation_prompt(
+            data.ranking_id,
+            data.candidate_id,
+            fit_score,
+            confidence_score,
+            skills_used,
+            missing_skills,
+        )
+        explanation = _generate_with_gemini(gemini_prompt) or _fallback_explanation(
+            fit_score,
+            skills_used,
+            missing_skills,
+            confidence_score,
+        )
             
         response = AIExplanationResponse(
             request_id=request_id,
@@ -215,33 +285,47 @@ class AIService:
             
         # Sort by rank_position
         candidates_info.sort(key=lambda x: x["rank_position"])
-        
-        parts = []
-        parts.append(f"Comparing candidates for ranking {data.ranking_id}:")
-        
+
+        compare_prompt_lines = [
+            "You are a recruiter-trustworthy AI assistant.",
+            "Write a concise comparison of the candidates below using only the supplied evidence.",
+            "Do not invent skills, achievements, or experience.",
+            "Explain why the higher-ranked candidate is stronger and mention missing required skills explicitly.",
+            "Keep it factual and grounded.",
+            f"ranking_id: {data.ranking_id}",
+        ]
         for c in candidates_info:
-            skills_str = ", ".join(c["skills_used"]) if c["skills_used"] else "none of the required skills"
-            missing_str = f"Missing required skills: {', '.join(c['missing_skills'])}." if c["missing_skills"] else "All required skills met."
-            desc = f"Rank {c['rank_position']}: {c['full_name']} has a fit score of {c['fit_score']} and a confidence score of {c['confidence_score']}. They possess evidence of {skills_str}. {missing_str}"
+            compare_prompt_lines.append(
+                f"- {c['full_name']} | rank={c['rank_position']} | fit_score={c['fit_score']} | confidence_score={c['confidence_score']} | skills_used={', '.join(c['skills_used']) if c['skills_used'] else 'none'} | missing_skills={', '.join(c['missing_skills']) if c['missing_skills'] else 'none'}"
+            )
+        comparison_text = _generate_with_gemini("\n".join(compare_prompt_lines))
+        if not comparison_text:
+            parts = []
+            parts.append(f"Comparing candidates for ranking {data.ranking_id}:")
             
-            if c["confidence_score"] < 0.65:
-                desc += " Warning: This candidate has a low ranking confidence score, manual review is recommended."
-            elif c["confidence_score"] < 0.85:
-                desc += " Some resume evidence is partial."
+            for c in candidates_info:
+                skills_str = ", ".join(c["skills_used"]) if c["skills_used"] else "none of the required skills"
+                missing_str = f"Missing required skills: {', '.join(c['missing_skills'])}." if c["missing_skills"] else "All required skills met."
+                desc = f"Rank {c['rank_position']}: {c['full_name']} has a fit score of {c['fit_score']} and a confidence score of {c['confidence_score']}. They possess evidence of {skills_str}. {missing_str}"
                 
-            parts.append(desc)
-            
-        if len(candidates_info) >= 2:
-            c1 = candidates_info[0]
-            c2 = candidates_info[1]
-            contrast = f"Comparison highlights: {c1['full_name']} (Rank {c1['rank_position']}) ranks higher than {c2['full_name']} (Rank {c2['rank_position']}) due to a higher fit score ({c1['fit_score']} vs {c2['fit_score']})."
-            
-            diff_skills = set(c1["skills_used"]) - set(c2["skills_used"])
-            if diff_skills:
-                contrast += f" Specifically, {c1['full_name']} has evidence for: {', '.join(diff_skills)}, which is missing in {c2['full_name']}'s profile."
-            parts.append(contrast)
-            
-        comparison_text = " ".join(parts)
+                if c["confidence_score"] < 0.65:
+                    desc += " Warning: This candidate has a low ranking confidence score, manual review is recommended."
+                elif c["confidence_score"] < 0.85:
+                    desc += " Some resume evidence is partial."
+                    
+                parts.append(desc)
+                
+            if len(candidates_info) >= 2:
+                c1 = candidates_info[0]
+                c2 = candidates_info[1]
+                contrast = f"Comparison highlights: {c1['full_name']} (Rank {c1['rank_position']}) ranks higher than {c2['full_name']} (Rank {c2['rank_position']}) due to a higher fit score ({c1['fit_score']} vs {c2['fit_score']})."
+                
+                diff_skills = set(c1["skills_used"]) - set(c2["skills_used"])
+                if diff_skills:
+                    contrast += f" Specifically, {c1['full_name']} has evidence for: {', '.join(diff_skills)}, which is missing in {c2['full_name']}'s profile."
+                parts.append(contrast)
+                
+            comparison_text = " ".join(parts)
         
         return AICompareResponse(
             request_id=request_id,
@@ -302,18 +386,32 @@ class AIService:
                 
         missing_skills_list = sorted(list(all_missing_skills))
         
-        summary_text = (
-            f"This shortlist evaluated {total_candidates} candidates for the role. "
-            f"The top candidate is {top_cand_name} with a fit score of {top_candidate['fit_score']:.2f}. "
-        )
-        
-        if missing_skills_list:
-            summary_text += f"Across the shortlist, required skills missing in some profiles include: {', '.join(missing_skills_list)}."
-        else:
-            summary_text += "All evaluated candidates meet the required skills."
+        summary_prompt = "\n".join([
+            "You are a recruiter-trustworthy AI assistant.",
+            "Write a concise shortlist summary using only the supplied evidence.",
+            "Do not invent candidate details.",
+            "Mention the top candidate, common missing required skills, and whether manual review is needed.",
+            f"ranking_id: {data.ranking_id}",
+            f"total_candidates: {total_candidates}",
+            f"top_candidate: {top_cand_name}",
+            f"top_fit_score: {top_candidate['fit_score']:.2f}",
+            f"missing_required_skills: {', '.join(missing_skills_list) if missing_skills_list else 'none'}",
+            f"low_confidence_count: {low_confidence_count}",
+        ])
+        summary_text = _generate_with_gemini(summary_prompt)
+        if not summary_text:
+            summary_text = (
+                f"This shortlist evaluated {total_candidates} candidates for the role. "
+                f"The top candidate is {top_cand_name} with a fit score of {top_candidate['fit_score']:.2f}. "
+            )
             
-        if low_confidence_count > 0:
-            summary_text += f" Warning: {low_confidence_count} candidate(s) have low parsing confidence and require manual review."
+            if missing_skills_list:
+                summary_text += f"Across the shortlist, required skills missing in some profiles include: {', '.join(missing_skills_list)}."
+            else:
+                summary_text += "All evaluated candidates meet the required skills."
+                
+            if low_confidence_count > 0:
+                summary_text += f" Warning: {low_confidence_count} candidate(s) have low parsing confidence and require manual review."
             
         return AIShortlistSummaryResponse(
             request_id=request_id,

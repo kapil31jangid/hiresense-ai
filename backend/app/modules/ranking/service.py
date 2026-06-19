@@ -8,34 +8,31 @@ from app.common.schemas import (
     RankingStatus
 )
 from app.common.errors import HireSenseException
+from app.common.repositories import FirestoreBackedStore
+from app.common.runtime import build_runtime_state
 from app.modules.job.service import _jobs_db
 from app.modules.candidate.service import _candidates_db
 
-_rankings_db: Dict[str, Dict] = {
-    "rank_001": {
-        "ranking_id": "rank_001",
-        "job_id": "JOB_0000001",
-        "status": RankingStatus.COMPLETED,
-        "candidate_count": 1,
-        "created_at": "2026-05-27T15:20:00Z",
-        "updated_at": "2026-05-27T15:20:00Z",
-        "candidates": [
-            {
-                "candidate_id": "CAND_0000001",
-                "rank_position": 1,
-                "fit_score": 0.91,
-                "confidence_score": 0.87,
-                "missing_required_skills": [],
-                "top_match_reasons": [
-                    "Strong semantic match for backend platform work",
-                    "Direct evidence of FastAPI and PostgreSQL experience"
-                ],
-                "semantic_score": 0.94
-            }
-        ]
-    }
-}
-_ranking_counter = 1
+_rankings_db: Dict[str, Dict] = FirestoreBackedStore("rankings", {})
+_ranking_counter = 0
+
+
+def _sync_export_to_gcs(file_name: str, file_path: str) -> Optional[str]:
+    runtime = build_runtime_state()
+    if not runtime.gcs_ready or runtime.gcs_client is None:
+        return None
+
+    bucket_name = runtime.settings.gcs_bucket_name or runtime.settings.google_cloud_project
+    if not bucket_name:
+        return None
+
+    try:
+        bucket = runtime.gcs_client.bucket(bucket_name)
+        blob = bucket.blob(f"exports/{file_name}")
+        blob.upload_from_filename(file_path, content_type="text/csv")
+        return f"gs://{bucket_name}/exports/{file_name}"
+    except Exception:
+        return None
 
 
 def _run_ranking_scoring(job_id: str, candidate_ids: List[str]) -> List[Dict[str, Any]]:
@@ -388,7 +385,10 @@ class RankingService:
                     c["confidence_score"],
                     ",".join(c["missing_required_skills"])
                 ])
-                
+
+        # Best-effort cloud sync for Google Cloud Storage deployments.
+        _sync_export_to_gcs(file_name, file_path)
+
         now_str = datetime.utcnow().isoformat() + "Z"
         download_url = f"/exports/{file_name}"
         

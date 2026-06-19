@@ -4,62 +4,12 @@ import re
 
 from app.common.schemas import JobCreate, JobUpdate, JobResponseData, JobListItem, JobStatus, SourceType
 from app.common.errors import HireSenseException
+from app.common.repositories import FirestoreBackedStore
 
-# Simple in-memory DB for prototype stability
-_jobs_db: Dict[str, Dict] = {
-    "JOB_0000001": {
-        "job_id": "JOB_0000001",
-        "title": "Senior Backend Engineer",
-        "status": JobStatus.ACTIVE,
-        "required_skills": ["python", "fastapi", "postgresql"],
-        "preferred_skills": ["distributed_systems"],
-        "confidence_score": 0.93,
-        "created_at": "2026-05-27T14:30:00Z",
-        "updated_at": "2026-05-27T14:45:00Z",
-        "candidate_count": 42,
-        "description_text": (
-            "We are hiring a Senior Backend Engineer with strong Python, FastAPI, "
-            "PostgreSQL, and distributed systems experience."
-        )
-    }
-}
-_job_requirements_db: Dict[str, List[Dict[str, Any]]] = {
-    "JOB_0000001": [
-        {
-            "requirement_type": "REQUIRED_SKILL",
-            "canonical_value": "python",
-            "source_text": "strong Python, FastAPI, PostgreSQL",
-            "source_span_start": 53,
-            "source_span_end": 88,
-            "confidence_score": 0.95,
-        },
-        {
-            "requirement_type": "REQUIRED_SKILL",
-            "canonical_value": "fastapi",
-            "source_text": "strong Python, FastAPI, PostgreSQL",
-            "source_span_start": 53,
-            "source_span_end": 88,
-            "confidence_score": 0.95,
-        },
-        {
-            "requirement_type": "REQUIRED_SKILL",
-            "canonical_value": "postgresql",
-            "source_text": "strong Python, FastAPI, PostgreSQL",
-            "source_span_start": 53,
-            "source_span_end": 88,
-            "confidence_score": 0.95,
-        },
-        {
-            "requirement_type": "PREFERRED_SKILL",
-            "canonical_value": "distributed_systems",
-            "source_text": "distributed systems experience",
-            "source_span_start": 94,
-            "source_span_end": 124,
-            "confidence_score": 0.82,
-        },
-    ]
-}
-_job_counter = 1
+# Firestore-backed job store with no bootstrap data.
+_jobs_db: Dict[str, Dict] = FirestoreBackedStore("jobs", {})
+_job_requirements_db: Dict[str, List[Dict[str, Any]]] = FirestoreBackedStore("job_requirements", {})
+_job_counter = 0
 
 _SKILL_ALIASES: Dict[str, Tuple[str, ...]] = {
     "python": ("python", "python3", "python 3"),
