@@ -8,10 +8,11 @@ from app.common.schemas import (
 )
 from app.common.errors import HireSenseException
 from app.common.skills import find_skills_in_text, _SKILL_ALIASES, normalize_skill
+from app.common.repositories import FirestoreBackedStore, FirestoreBackedListStore
 
 # Simple in-memory DB for prototype stability
-_candidates_db: Dict[str, Dict] = {}
-_candidate_evidence_db: Dict[str, List[Dict[str, Any]]] = {}
+_candidates_db: Dict[str, Dict] = FirestoreBackedStore("candidates", {})
+_candidate_evidence_db: Dict[str, List[Dict[str, Any]]] = FirestoreBackedListStore("candidate_evidence", {})
 
 _candidate_counter = 0
 _evidence_counter = 0

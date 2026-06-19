@@ -1,4 +1,5 @@
 import os
+import tempfile
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
@@ -6,9 +7,13 @@ from fastapi.exceptions import RequestValidationError
 from app.api.middleware import TracingMiddleware
 from app.common.context import get_request_id
 from app.common.errors import HireSenseException, format_error_response
+from app.common.runtime import build_runtime_state, load_settings
 from app.api.routes import (
     health, jobs, candidates, rankings, semantic_search, ai, analytics, alerts, pipeline
 )
+
+settings = load_settings()
+runtime_state = build_runtime_state()
 
 app = FastAPI(
     title="HireSense AI API Service",
@@ -16,8 +21,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
+app.state.settings = settings
+app.state.runtime = runtime_state
+
 # Register Tracing and Context Middleware
 app.add_middleware(TracingMiddleware)
+
+
+@app.on_event("startup")
+async def startup_event():
+    # Keep startup idempotent while still surfacing runtime wiring in app state.
+    app.state.settings = load_settings()
+    app.state.runtime = build_runtime_state()
 
 # Custom Exception Handler for App Exceptions
 @app.exception_handler(HireSenseException)
@@ -86,11 +101,42 @@ app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(alerts.router, prefix="/api/v1")
 app.include_router(pipeline.router, prefix="/api/v1")
 
+
+def _download_export_from_gcs(filename: str) -> str | None:
+    runtime = getattr(app.state, "runtime", None) or build_runtime_state()
+    if not runtime.gcs_ready or runtime.gcs_client is None:
+        return None
+
+    bucket_name = runtime.settings.gcs_bucket_name or runtime.settings.google_cloud_project
+    if not bucket_name:
+        return None
+
+    try:
+        bucket = runtime.gcs_client.bucket(bucket_name)
+        blob = bucket.blob(f"exports/{filename}")
+        if not blob.exists():
+            return None
+        temp_dir = tempfile.gettempdir()
+        temp_path = os.path.join(temp_dir, filename)
+        blob.download_to_filename(temp_path)
+        return temp_path
+    except Exception:
+        return None
+
+
 # Route to serve exported CSV shortlist files
 @app.get("/exports/{filename}", tags=["Exports"])
 def download_export(filename: str):
     exports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "exports")
     file_path = os.path.join(exports_dir, filename)
+    gcs_path = _download_export_from_gcs(filename)
+    if gcs_path:
+        return FileResponse(
+            path=gcs_path,
+            media_type="text/csv",
+            filename=filename
+        )
+
     if not os.path.exists(file_path):
         # Format error response if export file does not exist
         req_id = get_request_id()

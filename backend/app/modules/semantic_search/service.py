@@ -9,6 +9,8 @@ from app.common.schemas import (
     SemanticJobSearchRequest, SemanticJobSearchItem,
 )
 from app.common.errors import HireSenseException
+from app.common.repositories import FirestoreBackedStore
+from app.common.runtime import build_runtime_state
 from app.modules.job.service import _jobs_db
 from app.modules.candidate.service import _candidates_db
 
@@ -22,7 +24,8 @@ def get_model():
     return _model
 
 # In-memory vector metadata database (stores canonical embedding records)
-_embeddings_db: Dict[str, Dict[str, Any]] = {}
+_embeddings_db: Dict[str, Dict[str, Any]] = FirestoreBackedStore("embeddings", {})
+_index_metadata_db: Dict[str, Dict[str, Any]] = FirestoreBackedStore("semantic_indexes", {})
 
 # In-memory dense vector storage
 _candidate_vectors: Dict[str, np.ndarray] = {}
@@ -41,9 +44,93 @@ _candidate_last_rebuilt_at: Optional[str] = None
 _job_last_rebuilt_at: Optional[str] = None
 
 
+def _get_runtime():
+    return build_runtime_state()
+
+
+def _index_snapshot_name(entity_type: str) -> str:
+    return f"semantic_indexes/{entity_type.lower()}_index.faiss"
+
+
+def _serialize_index(index: Any) -> Optional[bytes]:
+    try:
+        serialized = faiss.serialize_index(index)
+        if isinstance(serialized, bytes):
+            return serialized
+        if hasattr(serialized, "tobytes"):
+            return serialized.tobytes()
+        return bytes(serialized)
+    except Exception:
+        return None
+
+
+def _deserialize_index(payload: bytes):
+    try:
+        if hasattr(faiss, "deserialize_index"):
+            arr = np.frombuffer(payload, dtype=np.uint8)
+            return faiss.deserialize_index(arr)
+    except Exception:
+        return None
+    return None
+
+
+def _persist_index_snapshot(entity_type: str, index: Any, vector_count: int, rebuilt_at: str) -> None:
+    runtime = _get_runtime()
+    snapshot_name = _index_snapshot_name(entity_type)
+    payload = _serialize_index(index)
+    if payload is None:
+        return
+
+    metadata = {
+        "entity_type": entity_type,
+        "snapshot_name": snapshot_name,
+        "vector_count": vector_count,
+        "rebuilt_at": rebuilt_at,
+        "status": "READY",
+    }
+    _index_metadata_db[entity_type] = metadata
+
+    if not runtime.gcs_ready or runtime.gcs_client is None:
+        return
+
+    bucket_name = runtime.settings.gcs_bucket_name or runtime.settings.google_cloud_project
+    if not bucket_name:
+        return
+
+    try:
+        bucket = runtime.gcs_client.bucket(bucket_name)
+        blob = bucket.blob(snapshot_name)
+        blob.upload_from_string(payload, content_type="application/octet-stream")
+        blob.metadata = metadata
+        blob.patch()
+    except Exception:
+        return
+
+
+def _load_index_snapshot(entity_type: str):
+    runtime = _get_runtime()
+    snapshot_name = _index_snapshot_name(entity_type)
+
+    if runtime.gcs_ready and runtime.gcs_client is not None:
+        bucket_name = runtime.settings.gcs_bucket_name or runtime.settings.google_cloud_project
+        if bucket_name:
+            try:
+                bucket = runtime.gcs_client.bucket(bucket_name)
+                blob = bucket.blob(snapshot_name)
+                if blob.exists():
+                    payload = blob.download_as_bytes()
+                    index = _deserialize_index(payload)
+                    if index is not None:
+                        return index
+            except Exception:
+                pass
+    return None
+
+
 class SemanticSearchService:
     @staticmethod
     def search_candidates(data: SemanticSearchRequest) -> List[SemanticSearchItem]:
+        global _candidate_index, _candidate_vector_keys
         # 1. Validate job_id
         if data.job_id not in _jobs_db:
             raise HireSenseException(
@@ -54,6 +141,15 @@ class SemanticSearchService:
 
         # 2. Check if candidate index is ready and has vectors; self-heal if candidates exist but index is empty
         if _candidate_index is None or len(_candidate_vector_keys) == 0:
+            loaded = _load_index_snapshot("CANDIDATE")
+            if loaded is not None:
+                _candidate_index = loaded
+                _candidate_vector_keys = [
+                    emb["entity_id"]
+                    for emb in _embeddings_db.values()
+                    if emb["entity_type"] == "CANDIDATE" and emb.get("status") == "READY"
+                ]
+
             if len(_candidates_db) > 0:
                 SemanticSearchService.refresh_embeddings("CANDIDATE")
                 SemanticSearchService.rebuild_indexes("CANDIDATE")
@@ -104,6 +200,7 @@ class SemanticSearchService:
 
     @staticmethod
     def search_jobs(data: SemanticJobSearchRequest) -> List[SemanticJobSearchItem]:
+        global _job_index, _job_vector_keys
         # 1. Validate candidate_id
         if data.candidate_id not in _candidates_db:
             raise HireSenseException(
@@ -114,6 +211,15 @@ class SemanticSearchService:
 
         # 2. Check if job index is ready and has vectors; self-heal if jobs exist but index is empty
         if _job_index is None or len(_job_vector_keys) == 0:
+            loaded = _load_index_snapshot("JOB")
+            if loaded is not None:
+                _job_index = loaded
+                _job_vector_keys = [
+                    emb["entity_id"]
+                    for emb in _embeddings_db.values()
+                    if emb["entity_type"] == "JOB" and emb.get("status") == "READY"
+                ]
+
             if len(_jobs_db) > 0:
                 SemanticSearchService.refresh_embeddings("JOB")
                 SemanticSearchService.rebuild_indexes("JOB")
@@ -387,6 +493,7 @@ class SemanticSearchService:
             _candidate_index = index
             _candidate_vector_keys = vector_keys
             _candidate_last_rebuilt_at = now_str
+            _persist_index_snapshot("CANDIDATE", index, len(vector_keys), now_str)
             rebuilt.append("CANDIDATE")
 
         # Rebuild job index
@@ -416,6 +523,7 @@ class SemanticSearchService:
             _job_index = index
             _job_vector_keys = vector_keys
             _job_last_rebuilt_at = now_str
+            _persist_index_snapshot("JOB", index, len(vector_keys), now_str)
             rebuilt.append("JOB")
 
         return rebuilt
@@ -450,12 +558,14 @@ class SemanticSearchService:
                 "status": cand_status,
                 "vector_count": len(_candidate_vector_keys),
                 "embedding_version": "candidate_profile_v1",
-                "last_rebuilt_at": _candidate_last_rebuilt_at
+                "last_rebuilt_at": _candidate_last_rebuilt_at,
+                "snapshot_name": _index_snapshot_name("CANDIDATE"),
             },
             "job": {
                 "status": job_status,
                 "vector_count": len(_job_vector_keys),
                 "embedding_version": "job_requirements_v1",
-                "last_rebuilt_at": _job_last_rebuilt_at
+                "last_rebuilt_at": _job_last_rebuilt_at,
+                "snapshot_name": _index_snapshot_name("JOB"),
             }
         }
