@@ -11,6 +11,7 @@ from app.modules.alerts import service as alerts_service
 from app.modules.ai import service as ai_service
 from app.modules.analytics.service import AnalyticsService
 from app.modules.candidate import service as candidate_service
+from app.challenge import dataset_store as challenge_dataset
 from app.modules.data_pipeline import service as pipeline_service
 from app.modules.job import service as job_service
 from app.modules.ranking import service as ranking_service
@@ -23,6 +24,11 @@ def _now() -> str:
 
 @pytest.fixture(autouse=True)
 def seed_demo_state(monkeypatch):
+    monkeypatch.setattr(challenge_dataset, "is_enabled", lambda: False, raising=False)
+    monkeypatch.setattr(challenge_dataset, "list_summaries", lambda: [], raising=False)
+    monkeypatch.setattr(challenge_dataset, "has_candidate", lambda candidate_id: False, raising=False)
+    monkeypatch.setattr(challenge_dataset, "get_candidate", lambda candidate_id: None, raising=False)
+
     class _FakeBlob:
         def __init__(self, storage: dict, name: str):
             self._storage = storage

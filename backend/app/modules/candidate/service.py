@@ -351,6 +351,9 @@ class CandidateService:
         
         _candidate_counter += 1
         candidate_id = f"CAND_{_candidate_counter:07d}"
+        while candidate_id in _candidates_db or challenge_dataset.has_candidate(candidate_id):
+            _candidate_counter += 1
+            candidate_id = f"CAND_{_candidate_counter:07d}"
 
         explicit_source_present = bool(source_text or data.source_text or data.source_data or source_file_name or data.resume_file_name)
         effective_source_text = _build_candidate_source_text(

@@ -1,4 +1,6 @@
 from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from app.common.errors import HireSenseException
@@ -19,6 +21,8 @@ from app.modules.alerts.service import _alerts_db
 from app.modules.candidate.service import _candidates_db
 from app.modules.job.service import _jobs_db
 from app.modules.ranking.service import _rankings_db
+from app.challenge import dataset_store as challenge_dataset
+from app.common.runtime import load_settings
 
 LOW_CONFIDENCE_THRESHOLD = 0.88
 SHORTLIST_FIT_THRESHOLD = 0.80
@@ -43,6 +47,29 @@ def _iter_ranking_candidates() -> List[Dict[str, Any]]:
     return candidates
 
 
+def _challenge_candidate_count() -> int:
+    status = challenge_dataset.index_status()
+    return int(status.get("candidate_count") or 0) if status.get("enabled") else 0
+
+
+def _official_submission_rows() -> List[Dict[str, Any]]:
+    if not challenge_dataset.is_enabled():
+        return []
+    settings = load_settings()
+    path = Path(settings.challenge_submission_output_path)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[4] / path
+    if not path.exists():
+        return []
+    try:
+        import csv
+
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except Exception:
+        return []
+
+
 def _build_dashboard_summary(ranked_candidates: List[Dict[str, Any]]) -> AnalyticsSummary:
     fit_scores = [candidate.get("fit_score", 0.0) for candidate in ranked_candidates]
     low_confidence_count = sum(
@@ -51,7 +78,8 @@ def _build_dashboard_summary(ranked_candidates: List[Dict[str, Any]]) -> Analyti
         if candidate.get("confidence_score", 0.0) < LOW_CONFIDENCE_THRESHOLD
     )
     active_jobs = sum(1 for job in _jobs_db.values() if _enum_value(job.get("status")) == "ACTIVE")
-    parsed_candidates = sum(
+    challenge_count = _challenge_candidate_count()
+    parsed_candidates = challenge_count or sum(
         1
         for candidate in _candidates_db.values()
         if candidate.get("parsing_status") in {"COMPLETED", "PARTIAL"}
@@ -70,6 +98,17 @@ def _build_dashboard_summary(ranked_candidates: List[Dict[str, Any]]) -> Analyti
 
 
 def _build_ranking_quality(ranked_candidates: List[Dict[str, Any]]) -> RankingQualitySummary:
+    official_rows = _official_submission_rows()
+    if official_rows and not ranked_candidates:
+        scores = [float(row.get("score") or 0.0) for row in official_rows]
+        return RankingQualitySummary(
+            ranking_count=1,
+            ranked_candidate_count=len(official_rows),
+            average_fit_score=_round_score(sum(scores) / len(scores)) if scores else 0.0,
+            average_confidence_score=0.0,
+            low_confidence_count=0,
+        )
+
     fit_scores = [candidate.get("fit_score", 0.0) for candidate in ranked_candidates]
     confidence_scores = [candidate.get("confidence_score", 0.0) for candidate in ranked_candidates]
     low_confidence_count = sum(
@@ -110,6 +149,8 @@ def _build_skill_distribution() -> List[SkillDistributionItem]:
 
 
 def _build_candidate_funnel(ranked_candidates: List[Dict[str, Any]]) -> CandidateFunnelSummary:
+    challenge_count = _challenge_candidate_count()
+    official_rows = _official_submission_rows()
     ranked_candidate_ids: Set[str] = {
         candidate["candidate_id"]
         for candidate in ranked_candidates
@@ -120,17 +161,17 @@ def _build_candidate_funnel(ranked_candidates: List[Dict[str, Any]]) -> Candidat
         for candidate in ranked_candidates
         if candidate.get("candidate_id") and candidate.get("fit_score", 0.0) >= SHORTLIST_FIT_THRESHOLD
     }
-    parsed_candidates = sum(
+    parsed_candidates = challenge_count or sum(
         1
         for candidate in _candidates_db.values()
         if candidate.get("parsing_status") in {"COMPLETED", "PARTIAL"}
     )
 
     return CandidateFunnelSummary(
-        uploaded_candidates=len(_candidates_db),
+        uploaded_candidates=challenge_count or len(_candidates_db),
         parsed_candidates=parsed_candidates,
-        ranked_candidates=len(ranked_candidate_ids),
-        shortlisted_candidates=len(shortlisted_candidate_ids),
+        ranked_candidates=len(official_rows) if official_rows else len(ranked_candidate_ids),
+        shortlisted_candidates=len(official_rows) if official_rows else len(shortlisted_candidate_ids),
     )
 
 
@@ -225,6 +266,9 @@ def _build_aggregates() -> Dict[str, Any]:
 
 
 def _ensure_available() -> Dict[str, Any]:
+    if challenge_dataset.is_enabled():
+        now_str = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        AnalyticsService.refresh_aggregates(now_str, FreshnessStatus.FRESH)
     if not _analytics_last_updated_at or _analytics_aggregates is None:
         raise HireSenseException(
             status_code=503,
