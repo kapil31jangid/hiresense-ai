@@ -277,6 +277,11 @@ def resolve_default_candidates_path(use_sample: bool = False) -> Path:
     raise FileNotFoundError(f"No default challenge candidates file found. Searched: {searched}")
 
 
+def resolve_output_path(output_path: str | Path) -> Path:
+    path = Path(output_path)
+    return path if path.is_absolute() else REPOSITORY_ROOT / path
+
+
 def _skill_entries(candidate: Dict[str, Any]) -> List[Dict[str, Any]]:
     skills = candidate.get("skills") or []
     entries: List[Dict[str, Any]] = []
@@ -712,7 +717,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         settings = load_settings()
         candidates_path = Path(args.candidates) if args.candidates else resolve_default_candidates_path(use_sample=args.sample)
-        output_path = Path(args.output or settings.challenge_submission_output_path)
+        output_path = resolve_output_path(args.output or settings.challenge_submission_output_path)
         rows = run_submission(candidates_path, output_path, top_k=args.top_k, strict=args.strict)
     except Exception as exc:
         print(f"submission_generation_failed: {exc}", file=sys.stderr)
