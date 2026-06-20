@@ -22,4 +22,7 @@ export const rankingsApi = {
    */
   exportCsv: (ranking_id) =>
     apiClient(`/rankings/${ranking_id}/export/csv`),
+
+  exportOfficialChallengeCsv: () =>
+    apiClient('/rankings/challenge/export/csv', { method: 'POST' }),
 }

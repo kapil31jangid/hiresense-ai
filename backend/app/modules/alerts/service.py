@@ -44,6 +44,7 @@ class AlertService:
         severity: Optional[str] = None,
         job_id: Optional[str] = None
     ) -> List[AlertItem]:
+        AlertService.run_evaluation_sweep()
         items = []
         for alert in _alerts_db.values():
             if status and _enum_value(alert["status"]) != status:
@@ -69,6 +70,7 @@ class AlertService:
 
     @staticmethod
     def get_alerts_summary() -> Dict[str, Any]:
+        AlertService.run_evaluation_sweep()
         active_count = 0
         acknowledged_count = 0
         resolved_count = 0

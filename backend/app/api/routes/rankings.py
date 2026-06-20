@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, status
 from typing import Dict, Any
+from datetime import datetime, timezone
 
 from app.common.schemas import (
     RankingCreate, RankingResponse, RankingCandidatesResponse,
@@ -8,6 +9,8 @@ from app.common.schemas import (
 from app.common.context import get_request_id
 from app.api.auth import get_current_user
 from app.modules.ranking.service import RankingService
+from app.challenge.offline_ranker import resolve_default_candidates_path, resolve_output_path, run_submission
+from app.common.runtime import load_settings
 
 router = APIRouter(prefix="/rankings", tags=["Rankings"])
 
@@ -17,6 +20,24 @@ def create_ranking(data: RankingCreate, current_user=Depends(get_current_user)):
     return RankingResponse(
         request_id=get_request_id(),
         ranking=ranking_data
+    )
+
+@router.post("/challenge/export/csv", response_model=RankingExportResponse)
+def export_official_challenge_csv(current_user=Depends(get_current_user)):
+    request_id = get_request_id()
+    settings = load_settings()
+    candidates_path = resolve_default_candidates_path(use_sample=False)
+    output_path = resolve_output_path(settings.challenge_submission_output_path)
+    run_submission(candidates_path, output_path, top_k=100, strict=True)
+    generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    return RankingExportResponse(
+        request_id=request_id,
+        ranking_id="official_challenge_submission",
+        file_name=output_path.name,
+        content_type="text/csv",
+        download_url=f"/exports/{output_path.name}",
+        generated_at=generated_at,
     )
 
 @router.get("/{ranking_id}", response_model=RankingResponse)
