@@ -17,7 +17,7 @@ export default function RankingsPage() {
   const [createError, setCreateError] = useState(null)
 
   const { data: jobsData } = useApi(jobsApi.list)
-  const { data: candsData } = useApi(candidatesApi.list)
+  const { data: candsData } = useApi(() => candidatesApi.list({ limit: 100 }))
   const [rankings, setRankings] = useState([])
   const [rankingsLoading, setRankingsLoading] = useState(false)
   const [rankingsError, setRankingsError] = useState(null)
@@ -87,7 +87,7 @@ export default function RankingsPage() {
               </select>
             </div>
             <p className="text-xs text-slate-500">
-              All {(candsData?.items || []).length} parsed candidates will be ranked for the selected job.
+              The first {(candsData?.items || []).length} visible candidates will be ranked for the selected job.
             </p>
             {createError && <ErrorDisplay error={createError} />}
             <div className="flex gap-3">

@@ -5,6 +5,7 @@ import re
 from app.common.schemas import JobCreate, JobUpdate, JobResponseData, JobListItem, JobStatus, SourceType
 from app.common.errors import HireSenseException
 from app.common.repositories import FirestoreBackedStore
+from app.challenge.job_store import CHALLENGE_JOB_ID, get_challenge_job
 
 _jobs_db: Dict[str, Dict] = FirestoreBackedStore("jobs", {})
 _job_requirements_db: Dict[str, List[Dict[str, Any]]] = FirestoreBackedStore("job_requirements", {})
@@ -428,7 +429,11 @@ class JobService:
         page_token: Optional[str] = None,
         created_after: Optional[str] = None
     ) -> Tuple[List[JobListItem], Optional[str]]:
-        jobs = list(_jobs_db.values())
+        challenge_job = get_challenge_job()
+        jobs = ([challenge_job] if challenge_job else []) + [
+            job for job in _jobs_db.values()
+            if not challenge_job or job.get("job_id") != CHALLENGE_JOB_ID
+        ]
         jobs.sort(key=lambda job: (_parse_iso_timestamp(job["created_at"]), job["job_id"]), reverse=True)
 
         cursor_cutoff: Optional[Tuple[datetime, str]] = None
@@ -498,6 +503,9 @@ class JobService:
 
     @staticmethod
     def get_job(job_id: str) -> JobResponseData:
+        challenge_job = get_challenge_job()
+        if challenge_job and job_id == CHALLENGE_JOB_ID:
+            return JobResponseData(**challenge_job)
         if job_id not in _jobs_db:
             raise HireSenseException(
                 status_code=404,
@@ -508,6 +516,18 @@ class JobService:
 
     @staticmethod
     def get_requirements(job_id: str) -> Dict[str, Any]:
+        challenge_job = get_challenge_job()
+        if challenge_job and job_id == CHALLENGE_JOB_ID:
+            return {
+                "job_id": challenge_job["job_id"],
+                "required_skills": challenge_job.get("required_skills", []),
+                "preferred_skills": challenge_job.get("preferred_skills", []),
+                "confidence_score": challenge_job.get("confidence_score", 0.0),
+                "role_intelligence": challenge_job.get("role_intelligence", {}),
+                "requirement_evidence": [],
+                "embedding_metadata": challenge_job.get("embedding_metadata", {}),
+                "updated_at": challenge_job.get("updated_at"),
+            }
         if job_id not in _jobs_db:
             raise HireSenseException(
                 status_code=404,

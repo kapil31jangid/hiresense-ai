@@ -67,6 +67,15 @@ class AppSettings:
     gcs_region: str = field(default_factory=lambda: os.getenv("GCS_REGION", "asia-south1"))
     cloud_run_service_name: str = field(default_factory=lambda: os.getenv("CLOUD_RUN_SERVICE_NAME", ""))
     cloud_run_region: str = field(default_factory=lambda: os.getenv("CLOUD_RUN_REGION", "asia-south1"))
+    challenge_dataset_dir: str = field(default_factory=lambda: os.getenv("CHALLENGE_DATASET_DIR", ""))
+    challenge_candidates_path: str = field(default_factory=lambda: os.getenv("CHALLENGE_CANDIDATES_PATH", ""))
+    challenge_sample_candidates_path: str = field(default_factory=lambda: os.getenv("CHALLENGE_SAMPLE_CANDIDATES_PATH", ""))
+    challenge_schema_path: str = field(default_factory=lambda: os.getenv("CHALLENGE_SCHEMA_PATH", ""))
+    challenge_sample_submission_path: str = field(default_factory=lambda: os.getenv("CHALLENGE_SAMPLE_SUBMISSION_PATH", ""))
+    challenge_index_path: str = field(default_factory=lambda: os.getenv("CHALLENGE_INDEX_PATH", "backend/data/challenge/candidate_index.json"))
+    challenge_calibration_path: str = field(default_factory=lambda: os.getenv("CHALLENGE_CALIBRATION_PATH", "backend/data/challenge/sample_calibration.json"))
+    challenge_submission_output_path: str = field(default_factory=lambda: os.getenv("CHALLENGE_SUBMISSION_OUTPUT_PATH", "backend/exports/official_submission.csv"))
+    challenge_dataset_autoload: str = field(default_factory=lambda: os.getenv("CHALLENGE_DATASET_AUTOLOAD", "false"))
 
     def firebase_credentials_dict(self) -> Optional[Dict[str, Any]]:
         raw = self.firebase_service_account_json.strip()

@@ -9,11 +9,15 @@ import re
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Sequence, Tuple
 
+from app.common.runtime import load_settings
+
 
 REFERENCE_DATE = date(2026, 6, 19)
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 ROLE_SKILL_GROUPS: Dict[str, Tuple[Tuple[str, ...], float]] = {
     "python": (("python", "python3"), 1.0),
@@ -30,6 +34,15 @@ ROLE_SKILL_GROUPS: Dict[str, Tuple[Tuple[str, ...], float]] = {
     "mlops": (("mlops", "model serving", "bentoml", "mlflow", "kubeflow", "airflow"), 0.75),
     "cloud": (("gcp", "google cloud", "aws", "azure", "cloud run", "kubernetes"), 0.55),
     "data_engineering": (("spark", "kafka", "etl", "pipeline", "feature engineering"), 0.6),
+}
+
+ALL_ROLE_ALIASES = tuple(alias for aliases, _ in ROLE_SKILL_GROUPS.values() for alias in aliases)
+TOTAL_ROLE_WEIGHT = sum(weight for _, weight in ROLE_SKILL_GROUPS.values())
+PROFICIENCY_WEIGHT = {
+    "beginner": 0.45,
+    "intermediate": 0.65,
+    "advanced": 0.88,
+    "expert": 1.0,
 }
 
 PRODUCTION_TERMS = (
@@ -109,6 +122,15 @@ def _normalize_space(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _normalize_match_text(value: str) -> str:
+    return f" {re.sub(r'[^a-z0-9.+#-]+', ' ', value.lower())} "
+
+
+@lru_cache(maxsize=512)
+def _normalize_alias(value: str) -> str:
+    return _normalize_match_text(value)
+
+
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None or value == "":
@@ -128,6 +150,51 @@ def _safe_bool(value: Any) -> bool:
 
 def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, value))
+
+
+@lru_cache(maxsize=1)
+def _load_score_calibration() -> Dict[str, float]:
+    settings = load_settings()
+    path = Path(settings.challenge_calibration_path)
+    if not path.is_absolute():
+        path = REPOSITORY_ROOT / path
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        calibration = payload.get("score_calibration") or {}
+        required = ("minimum", "p25", "median", "p75", "maximum")
+        if not all(key in calibration for key in required):
+            return {}
+        return {key: float(calibration[key]) for key in required}
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _calibrate_score(raw_score: float) -> float:
+    calibration = _load_score_calibration()
+    if not calibration:
+        return _clamp(raw_score)
+
+    anchors = [
+        (calibration["minimum"], 0.10),
+        (calibration["p25"], 0.35),
+        (calibration["median"], 0.55),
+        (calibration["p75"], 0.75),
+        (calibration["maximum"], 0.95),
+    ]
+    if raw_score <= anchors[0][0]:
+        return anchors[0][1]
+    if raw_score >= anchors[-1][0]:
+        return min(1.0, anchors[-1][1] + (raw_score - anchors[-1][0]) * 0.25)
+
+    for (left_x, left_y), (right_x, right_y) in zip(anchors, anchors[1:]):
+        if left_x <= raw_score <= right_x:
+            if right_x == left_x:
+                return right_y
+            ratio = (raw_score - left_x) / (right_x - left_x)
+            return _clamp(left_y + ratio * (right_y - left_y))
+    return _clamp(raw_score)
 
 
 def _parse_date(value: Any) -> date | None:
@@ -190,6 +257,26 @@ def iter_candidate_records(path: str | Path) -> Iterator[Dict[str, Any]]:
                     yield item
 
 
+def resolve_default_candidates_path(use_sample: bool = False) -> Path:
+    settings = load_settings()
+    configured_path = settings.challenge_sample_candidates_path if use_sample else settings.challenge_candidates_path
+    if configured_path:
+        candidate_path = Path(configured_path)
+        if candidate_path.exists():
+            return candidate_path
+        raise FileNotFoundError(f"Configured challenge candidates path does not exist: {candidate_path}")
+
+    dataset_dir = Path(settings.challenge_dataset_dir) if settings.challenge_dataset_dir else Path("demo_data")
+    candidate_names = ["sample_candidates.json"] if use_sample else ["candidates.jsonl.gz", "candidates.jsonl"]
+    for candidate_name in candidate_names:
+        candidate_path = dataset_dir / candidate_name
+        if candidate_path.exists():
+            return candidate_path
+
+    searched = ", ".join(str(dataset_dir / name) for name in candidate_names)
+    raise FileNotFoundError(f"No default challenge candidates file found. Searched: {searched}")
+
+
 def _skill_entries(candidate: Dict[str, Any]) -> List[Dict[str, Any]]:
     skills = candidate.get("skills") or []
     entries: List[Dict[str, Any]] = []
@@ -235,14 +322,14 @@ def _candidate_text(candidate: Dict[str, Any]) -> str:
         _clean_text(languages),
         _clean_text(signals),
     ]
-    return _normalize_space(" ".join(parts)).lower()
+    return _normalize_match_text(_normalize_space(" ".join(parts)))
 
 
 def _count_alias_hits(text: str, aliases: Sequence[str]) -> int:
     hits = 0
     for alias in aliases:
-        pattern = rf"(?<![a-z0-9]){re.escape(alias.lower())}(?![a-z0-9])"
-        if re.search(pattern, text):
+        normalized_alias = _normalize_alias(alias)
+        if normalized_alias in text:
             hits += 1
     return hits
 
@@ -250,20 +337,12 @@ def _count_alias_hits(text: str, aliases: Sequence[str]) -> int:
 def _skill_match_score(candidate: Dict[str, Any], text: str) -> Tuple[float, List[str]]:
     matched: List[str] = []
     weighted_score = 0.0
-    total_weight = sum(weight for _, weight in ROLE_SKILL_GROUPS.values())
-    skill_blob = _skill_text(candidate).lower()
-
-    proficiency_weight = {
-        "beginner": 0.45,
-        "intermediate": 0.65,
-        "advanced": 0.88,
-        "expert": 1.0,
-    }
+    skill_blob = _normalize_match_text(_skill_text(candidate))
 
     skill_quality_by_group: Dict[str, float] = {}
     for entry in _skill_entries(candidate):
-        name = str(entry.get("name") or "").lower()
-        proficiency = proficiency_weight.get(str(entry.get("proficiency") or "").lower(), 0.7)
+        name = _normalize_match_text(str(entry.get("name") or ""))
+        proficiency = PROFICIENCY_WEIGHT.get(str(entry.get("proficiency") or "").lower(), 0.7)
         endorsements = min(_safe_float(entry.get("endorsements")), 25.0) / 25.0
         duration = min(_safe_float(entry.get("duration_months")), 48.0) / 48.0
         quality = _clamp(0.55 * proficiency + 0.2 * endorsements + 0.25 * duration)
@@ -275,7 +354,7 @@ def _skill_match_score(candidate: Dict[str, Any], text: str) -> Tuple[float, Lis
     assessment_scores = signals.get("skill_assessment_scores") if isinstance(signals, dict) else {}
     if isinstance(assessment_scores, dict):
         for assessment_name, assessment_score in assessment_scores.items():
-            assessment_text = str(assessment_name).lower()
+            assessment_text = _normalize_match_text(str(assessment_name))
             normalized_assessment = _clamp(_safe_float(assessment_score) / 100.0)
             for group, (aliases, _) in ROLE_SKILL_GROUPS.items():
                 if _count_alias_hits(assessment_text, aliases):
@@ -292,7 +371,7 @@ def _skill_match_score(candidate: Dict[str, Any], text: str) -> Tuple[float, Lis
             matched.append(group)
         weighted_score += weight * quality
 
-    return _clamp(weighted_score / total_weight), matched
+    return _clamp(weighted_score / TOTAL_ROLE_WEIGHT), matched
 
 
 def _keyword_density_score(text: str, terms: Sequence[str]) -> float:
@@ -474,14 +553,62 @@ def _salary_penalty(candidate: Dict[str, Any]) -> float:
     return 0.0
 
 
-def score_candidate(candidate: Dict[str, Any]) -> RankedCandidate:
+def _profile_consistency_penalty(candidate: Dict[str, Any]) -> Tuple[float, List[str]]:
+    profile = candidate.get("profile") or {}
+    total_months = max(0.0, _safe_float(profile.get("years_of_experience")) * 12.0)
+    penalty = 0.0
+    concerns: List[str] = []
+
+    impossible_skills = 0
+    unsupported_expert_skills = 0
+    for skill in _skill_entries(candidate):
+        duration = _safe_float(skill.get("duration_months"))
+        proficiency = str(skill.get("proficiency") or "").lower()
+        if total_months > 0 and duration > total_months + 12:
+            impossible_skills += 1
+        if proficiency == "expert" and duration <= 0:
+            unsupported_expert_skills += 1
+
+    if impossible_skills:
+        penalty += min(0.18, 0.06 * impossible_skills)
+        concerns.append("skill duration exceeds stated experience")
+    if unsupported_expert_skills >= 3:
+        penalty += min(0.18, 0.03 * unsupported_expert_skills)
+        concerns.append("multiple expert claims lack usage history")
+
+    inconsistent_roles = 0
+    current_roles = 0
+    for role in candidate.get("career_history") or []:
+        if not isinstance(role, dict):
+            continue
+        current_roles += int(_safe_bool(role.get("is_current")))
+        duration = _safe_float(role.get("duration_months"))
+        start = _parse_date(role.get("start_date"))
+        end = _parse_date(role.get("end_date")) or (REFERENCE_DATE if _safe_bool(role.get("is_current")) else None)
+        if start and end:
+            elapsed_months = max(0.0, (end - start).days / 30.4375)
+            if end < start or duration > elapsed_months + 3:
+                inconsistent_roles += 1
+        if total_months > 0 and duration > total_months + 12:
+            inconsistent_roles += 1
+
+    if inconsistent_roles:
+        penalty += min(0.2, 0.08 * inconsistent_roles)
+        concerns.append("career dates conflict with claimed duration")
+    if current_roles > 2:
+        penalty += 0.05
+        concerns.append("unusually many concurrent current roles")
+    return min(0.4, penalty), concerns
+
+
+def score_candidate(candidate: Dict[str, Any], apply_calibration: bool = False) -> RankedCandidate:
     candidate_id = str(candidate.get("candidate_id") or "").strip()
     if not candidate_id:
         raise ValueError("Candidate record is missing candidate_id.")
 
     text = _candidate_text(candidate)
     skill_score, matched_groups = _skill_match_score(candidate, text)
-    semantic_role_score = _keyword_density_score(text, tuple(alias for aliases, _ in ROLE_SKILL_GROUPS.values() for alias in aliases))
+    semantic_role_score = _keyword_density_score(text, ALL_ROLE_ALIASES)
     production_score = _keyword_density_score(text, PRODUCTION_TERMS)
     product_score = _keyword_density_score(text, PRODUCT_TERMS)
     leadership_score = _keyword_density_score(text, LEADERSHIP_TERMS)
@@ -489,6 +616,7 @@ def score_candidate(candidate: Dict[str, Any]) -> RankedCandidate:
     title_score = _title_score(candidate, text)
     behavior_score, behavior_notes = _behavior_score(candidate)
     location_score = _location_score(candidate)
+    consistency_penalty, consistency_notes = _profile_consistency_penalty(candidate)
 
     raw_score = (
         0.32 * skill_score
@@ -503,9 +631,10 @@ def score_candidate(candidate: Dict[str, Any]) -> RankedCandidate:
     )
     raw_score -= _research_only_penalty(text, production_score)
     raw_score -= _salary_penalty(candidate)
+    raw_score -= consistency_penalty
 
-    score = round(_clamp(raw_score), 6)
-    reasoning = _build_reasoning(candidate, matched_groups, behavior_notes, score)
+    score = round(_calibrate_score(raw_score) if apply_calibration else _clamp(raw_score), 6)
+    reasoning = _build_reasoning(candidate, matched_groups, behavior_notes + consistency_notes, score)
     return RankedCandidate(candidate_id=candidate_id, score=score, reasoning=reasoning)
 
 
@@ -569,8 +698,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate an offline HireSense AI challenge submission CSV.",
     )
-    parser.add_argument("--candidates", required=True, help="Path to candidates.jsonl, candidates.jsonl.gz, or sample_candidates.json.")
-    parser.add_argument("--output", required=True, help="Path to write the submission CSV.")
+    parser.add_argument("--candidates", help="Path to candidates.jsonl, candidates.jsonl.gz, or sample_candidates.json. Defaults to CHALLENGE_CANDIDATES_PATH.")
+    parser.add_argument("--sample", action="store_true", help="Use CHALLENGE_SAMPLE_CANDIDATES_PATH or sample_candidates.json from CHALLENGE_DATASET_DIR.")
+    parser.add_argument("--output", help="Path to write the submission CSV. Defaults to CHALLENGE_SUBMISSION_OUTPUT_PATH.")
     parser.add_argument("--top-k", type=int, default=100, help="Number of ranked candidates to export. Defaults to 100.")
     parser.add_argument("--strict", action="store_true", help="Require exactly top-k rows in the generated output.")
     return parser
@@ -580,11 +710,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        rows = run_submission(args.candidates, args.output, top_k=args.top_k, strict=args.strict)
+        settings = load_settings()
+        candidates_path = Path(args.candidates) if args.candidates else resolve_default_candidates_path(use_sample=args.sample)
+        output_path = Path(args.output or settings.challenge_submission_output_path)
+        rows = run_submission(candidates_path, output_path, top_k=args.top_k, strict=args.strict)
     except Exception as exc:
         print(f"submission_generation_failed: {exc}", file=sys.stderr)
         return 1
-    print(f"submission_generated: rows={len(rows)} output={args.output}")
+    print(f"submission_generated: rows={len(rows)} output={output_path}")
     return 0
 
 

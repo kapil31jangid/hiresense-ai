@@ -13,26 +13,46 @@ from app.common.repositories import FirestoreBackedStore
 from app.common.runtime import build_runtime_state
 from app.modules.job.service import _jobs_db
 from app.modules.candidate.service import _candidates_db
+from app.challenge import dataset_store as challenge_dataset
+from app.challenge.job_store import get_challenge_job
 
 _rankings_db: Dict[str, Dict] = FirestoreBackedStore("rankings", {})
 _ranking_counter = 0
 
 
+def _build_submission_reasoning(candidate: Dict[str, Any]) -> str:
+    reasons = candidate.get("top_match_reasons") or []
+    if reasons:
+        text = " ".join(str(reason).strip() for reason in reasons[:2] if str(reason).strip())
+    else:
+        text = "Candidate ranked using stored fit score and parsed evidence."
+
+    missing = candidate.get("missing_required_skills") or []
+    if missing:
+        text = f"{text} Missing required skills: {', '.join(missing[:5])}."
+
+    return " ".join(text.split())[:500]
+
+
 def _run_ranking_scoring(job_id: str, candidate_ids: List[str]) -> List[Dict[str, Any]]:
     # 1. Validate job_id
-    if job_id not in _jobs_db:
+    challenge_job = get_challenge_job()
+    job = challenge_job if challenge_job and job_id == challenge_job["job_id"] else _jobs_db.get(job_id)
+    if job is None:
         raise HireSenseException(
             status_code=404,
             code="JOB_NOT_FOUND",
             message=f"Job with ID {job_id} was not found."
         )
-    job = _jobs_db[job_id]
     required_skills = [s.lower() for s in job.get("required_skills", [])]
     preferred_skills = [s.lower() for s in job.get("preferred_skills", [])]
 
     # 2. Fetch semantic search scores for the job (failures are handled gracefully)
     semantic_scores = {}
+    challenge_candidate_ids = {cand_id for cand_id in candidate_ids if challenge_dataset.has_candidate(cand_id)}
     try:
+        if challenge_candidate_ids:
+            raise RuntimeError("Skipping live semantic search for challenge dataset candidates.")
         from app.modules.semantic_search.service import SemanticSearchService
         from app.common.schemas import SemanticSearchRequest
         search_req = SemanticSearchRequest(job_id=job_id, top_k=1000)
@@ -45,14 +65,16 @@ def _run_ranking_scoring(job_id: str, candidate_ids: List[str]) -> List[Dict[str
     # 3. Score each candidate
     candidates_scored = []
     for cand_id in candidate_ids:
-        if cand_id not in _candidates_db:
+        cand = challenge_dataset.get_candidate(cand_id)
+        if cand is None and cand_id in _candidates_db:
+            cand = _candidates_db[cand_id]
+        if cand is None:
             raise HireSenseException(
                 status_code=422,
                 code="CANDIDATE_PROFILE_INCOMPLETE",
                 message=f"Candidate profile incomplete or not found: {cand_id}"
             )
-        
-        cand = _candidates_db[cand_id]
+
         cand_skills = [s.lower() for s in cand.get("normalized_skills", [])]
         
         # Required skills match ratio
@@ -86,6 +108,14 @@ def _run_ranking_scoring(job_id: str, candidate_ids: List[str]) -> List[Dict[str
             fit_score *= 0.8
             
         fit_score = round(max(0.0, min(1.0, fit_score)), 2)
+
+        challenge_reasoning = None
+        if cand.get("source_type") == "CHALLENGE_DATASET":
+            from app.challenge.offline_ranker import score_candidate
+
+            calibrated = score_candidate(cand.get("source_data") or {})
+            fit_score = round(calibrated.score, 2)
+            challenge_reasoning = calibrated.reasoning
         
         # Confidence score (starts with candidate's own parsed confidence)
         base_confidence = cand.get("confidence_score", 0.85)
@@ -97,11 +127,17 @@ def _run_ranking_scoring(job_id: str, candidate_ids: List[str]) -> List[Dict[str
             base_confidence -= 0.3
             
         # Check experience evidence records
-        from app.modules.candidate.service import CandidateService
-        try:
-            evidence_list = CandidateService.get_resume_evidence(cand_id)
-        except Exception:
-            evidence_list = []
+        if cand.get("source_type") == "CHALLENGE_DATASET":
+            evidence_list = [
+                type("Evidence", (), {"canonical_value": skill, "evidence_type": "SKILL"})
+                for skill in cand.get("normalized_skills", [])
+            ]
+        else:
+            from app.modules.candidate.service import CandidateService
+            try:
+                evidence_list = CandidateService.get_resume_evidence(cand_id)
+            except Exception:
+                evidence_list = []
             
         if not evidence_list:
             base_confidence -= 0.2
@@ -114,15 +150,18 @@ def _run_ranking_scoring(job_id: str, candidate_ids: List[str]) -> List[Dict[str
                 base_confidence -= 0.05 * len(unsupported_skills)
                 
         # Embedding status penalty
-        from app.modules.semantic_search.service import _embeddings_db
-        emb_record = _embeddings_db.get(f"emb_cand_{cand_id}")
-        if not emb_record or emb_record.get("status") != "READY":
-            base_confidence -= 0.15
+        if cand.get("source_type") != "CHALLENGE_DATASET":
+            from app.modules.semantic_search.service import _embeddings_db
+            emb_record = _embeddings_db.get(f"emb_cand_{cand_id}")
+            if not emb_record or emb_record.get("status") != "READY":
+                base_confidence -= 0.15
             
         confidence_score = round(max(0.1, min(0.95, base_confidence)), 2)
         
         # Grounded match reasons/explanation factors
         reasons = []
+        if challenge_reasoning:
+            reasons.append(challenge_reasoning)
         matched_required_skills = [s for s in required_skills if s in cand_skills]
         if matched_required_skills:
             reasons.append(f"Direct evidence of {', '.join(matched_required_skills[:3])} experience in resume.")
@@ -352,14 +391,13 @@ class RankingService:
         file_name = f"{ranking_id}_shortlist.csv"
         csv_buffer = io.StringIO()
         writer = csv.writer(csv_buffer)
-        writer.writerow(["rank_position", "candidate_id", "fit_score", "confidence_score", "missing_required_skills"])
+        writer.writerow(["candidate_id", "rank", "score", "reasoning"])
         for c in ranking["candidates"]:
             writer.writerow([
-                c["rank_position"],
                 c["candidate_id"],
-                c["fit_score"],
-                c["confidence_score"],
-                ",".join(c["missing_required_skills"])
+                c["rank_position"],
+                f"{float(c.get('fit_score', 0.0)):.4f}",
+                _build_submission_reasoning(c),
             ])
 
         runtime = build_runtime_state()

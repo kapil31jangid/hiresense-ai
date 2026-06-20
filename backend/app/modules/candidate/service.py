@@ -9,6 +9,7 @@ from app.common.schemas import (
 from app.common.errors import HireSenseException
 from app.common.skills import find_skills_in_text, _SKILL_ALIASES, normalize_skill
 from app.common.repositories import FirestoreBackedStore, FirestoreBackedListStore
+from app.challenge import dataset_store as challenge_dataset
 
 _candidates_db: Dict[str, Dict] = FirestoreBackedStore("candidates", {})
 _candidate_evidence_db: Dict[str, List[Dict[str, Any]]] = FirestoreBackedListStore("candidate_evidence", {})
@@ -502,8 +503,46 @@ class CandidateService:
         limit: int = 10,
         page_token: Optional[str] = None
     ) -> Tuple[List[CandidateListItem], Optional[str]]:
-        candidates = list(_candidates_db.values())
-        candidates.sort(key=lambda cand: (_parse_iso_timestamp(cand["updated_at"]), cand["candidate_id"]), reverse=True)
+        challenge_candidates = challenge_dataset.list_summaries()
+        if challenge_candidates:
+            # In challenge dataset mode, the organizer dataset is the only candidate
+            # source of truth. Do not merge local demo/manual records because they
+            # can duplicate names and confuse ranking/export validation.
+            candidates = challenge_candidates
+            candidates.sort(key=lambda cand: cand["candidate_id"])
+            start_index = 0
+            if page_token:
+                candidate_ids = [candidate["candidate_id"] for candidate in candidates]
+                try:
+                    start_index = candidate_ids.index(page_token) + 1
+                except ValueError:
+                    raise HireSenseException(
+                        status_code=400,
+                        code="INVALID_REQUEST",
+                        message="page_token is invalid.",
+                        details={"field": "page_token"},
+                    )
+
+            filtered_candidates = [
+                candidate for candidate in candidates[start_index:]
+                if (not status or candidate.get("parsing_status") == status)
+                and (not job_id or job_id in candidate.get("profile", {}).get("job_ids", []))
+            ]
+            page = filtered_candidates[:limit]
+            next_page_token = page[-1]["candidate_id"] if len(filtered_candidates) > limit and page else None
+            return [
+                CandidateListItem(
+                    candidate_id=cand["candidate_id"],
+                    full_name=cand["full_name"],
+                    confidence_score=cand["confidence_score"],
+                    parsing_status=cand.get("parsing_status", "PARTIAL"),
+                    updated_at=cand["updated_at"]
+                )
+                for cand in page
+            ], next_page_token
+        else:
+            candidates = list(_candidates_db.values())
+            candidates.sort(key=lambda cand: (_parse_iso_timestamp(cand["updated_at"]), cand["candidate_id"]), reverse=True)
 
         cursor_cutoff: Optional[Tuple[datetime, str]] = None
         if page_token:
@@ -545,6 +584,9 @@ class CandidateService:
 
     @staticmethod
     def get_candidate(candidate_id: str) -> CandidateResponseData:
+        challenge_record = challenge_dataset.get_candidate(candidate_id)
+        if challenge_record is not None:
+            return _candidate_record_to_response(challenge_record)
         if candidate_id not in _candidates_db:
             raise HireSenseException(
                 status_code=404,
@@ -555,6 +597,9 @@ class CandidateService:
 
     @staticmethod
     def get_candidate_detail(candidate_id: str) -> CandidateDetailData:
+        challenge_record = challenge_dataset.get_candidate(candidate_id)
+        if challenge_record is not None:
+            return _candidate_record_to_detail(challenge_record)
         if candidate_id not in _candidates_db:
             raise HireSenseException(
                 status_code=404,
@@ -566,6 +611,20 @@ class CandidateService:
 
     @staticmethod
     def get_resume_evidence(candidate_id: str) -> List[CandidateEvidenceItem]:
+        challenge_record = challenge_dataset.get_candidate(candidate_id)
+        if challenge_record is not None:
+            now_str = _utc_now()
+            return [
+                CandidateEvidenceItem(
+                    candidate_experience_evidence_id=f"challenge_{candidate_id}_{idx:03d}",
+                    candidate_id=candidate_id,
+                    evidence_type="SKILL",
+                    canonical_value=skill,
+                    source_text=skill,
+                    created_at=now_str,
+                )
+                for idx, skill in enumerate(challenge_record.get("normalized_skills", [])[:25], start=1)
+            ]
         if candidate_id not in _candidates_db:
             raise HireSenseException(
                 status_code=404,

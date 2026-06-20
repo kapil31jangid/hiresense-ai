@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 import os
 import io
+import csv
 
 from app.main import app
 from app.modules.job.service import _jobs_db
@@ -179,9 +180,12 @@ def test_ranking_and_export():
     assert response.status_code == 200
     assert "text/csv" in response.headers["content-type"]
     csv_content = response.text
-    # Should contain headers and candidate details
-    assert "rank_position" in csv_content
-    assert "CAND_0000001" in csv_content
+    rows = list(csv.DictReader(io.StringIO(csv_content)))
+    assert rows
+    assert rows[0].keys() == {"candidate_id", "rank", "score", "reasoning"}
+    assert rows[0]["candidate_id"] == "CAND_0000001"
+    assert rows[0]["rank"] == "1"
+    assert rows[0]["reasoning"]
 
 def test_semantic_search():
     search_payload = {
