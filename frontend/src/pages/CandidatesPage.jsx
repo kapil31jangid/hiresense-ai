@@ -15,8 +15,13 @@ export default function CandidatesPage() {
   const [uploadForm, setUploadForm] = useState({ full_name: '', email: '' })
   const [uploadError, setUploadError] = useState(null)
   const [uploadSuccess, setUploadSuccess] = useState(null)
+  const [pageToken, setPageToken] = useState(null)
+  const [pageHistory, setPageHistory] = useState([])
 
-  const { data, loading, error, refetch } = useApi(candidatesApi.list)
+  const { data, loading, error, refetch } = useApi(
+    () => candidatesApi.list({ limit: 100, page_token: pageToken }),
+    [pageToken]
+  )
   const { mutate: upload, loading: uploading } = useMutation(
     (name, email, file) => candidatesApi.upload(name, email, file)
   )
@@ -44,6 +49,7 @@ export default function CandidatesPage() {
   }
 
   const candidates = data?.items || []
+  const nextPageToken = data?.next_page_token
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -200,6 +206,35 @@ export default function CandidatesPage() {
               ))}
             </tbody>
           </table>
+          <div className="flex items-center justify-between border-t border-slate-800 px-4 py-3">
+            <p className="text-xs text-slate-500">
+              Showing up to 100 candidates{pageToken ? ' from the selected page' : ' from the dataset'}.
+            </p>
+            <div className="flex gap-2">
+              <button
+                className="btn-secondary"
+                disabled={pageHistory.length === 0}
+                onClick={() => {
+                  const previous = [...pageHistory]
+                  const token = previous.pop() || null
+                  setPageHistory(previous)
+                  setPageToken(token)
+                }}
+              >
+                Previous
+              </button>
+              <button
+                className="btn-secondary"
+                disabled={!nextPageToken}
+                onClick={() => {
+                  setPageHistory(history => [...history, pageToken])
+                  setPageToken(nextPageToken)
+                }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

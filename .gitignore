@@ -50,6 +50,7 @@ coverage/
 htmlcov/
 backend/exports/
 backend/app/exports/
+backend/data/challenge/
 *.log
 *.sqlite
 *.sqlite3

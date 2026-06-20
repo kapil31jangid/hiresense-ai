@@ -49,7 +49,7 @@ async def upload_candidate_resume(
 def list_candidates(
     job_id: Optional[str] = Query(None, description="Filter candidates by job"),
     status: Optional[str] = Query(None, description="Filter by candidate status"),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=100),
     page_token: Optional[str] = Query(None),
     current_user=Depends(get_current_user)
 ):

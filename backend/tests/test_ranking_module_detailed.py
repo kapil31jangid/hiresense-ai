@@ -272,8 +272,11 @@ def test_ranking_export_uses_stored_results():
     
     assert len(rows) == 1
     assert rows[0]["candidate_id"] == "CAND_0000001"
-    # Fit score must remain high (stored value), not 0.0 (recomputed value)
-    assert float(rows[0]["fit_score"]) > 0.5
+    assert set(rows[0].keys()) == {"candidate_id", "rank", "score", "reasoning"}
+    assert rows[0]["rank"] == "1"
+    # Score must remain high (stored value), not 0.0 (recomputed value)
+    assert float(rows[0]["score"]) > 0.5
+    assert rows[0]["reasoning"]
 
 def test_ranking_refresh_updates_stored_results():
     _candidates_db["CAND_0000001"] = {

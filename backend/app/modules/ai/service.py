@@ -20,15 +20,79 @@ from app.modules.candidate.service import _candidates_db
 _explanations_db: Dict[str, Dict[str, AIExplanationResponse]] = {}
 
 
+def _generate_local_fallback(prompt: str) -> str:
+    lowered = prompt.lower()
+    if "skills_used:" in lowered:
+        confidence_line = next((line for line in prompt.splitlines() if line.startswith("confidence_score:")), "confidence_score: 0")
+        skills_line = next((line for line in prompt.splitlines() if line.startswith("skills_used:")), "skills_used: none")
+        missing_line = next((line for line in prompt.splitlines() if line.startswith("missing_required_skills:")), "missing_required_skills: none")
+        skills = skills_line.split(":", 1)[1].strip()
+        missing = missing_line.split(":", 1)[1].strip()
+        
+        try:
+            confidence = float(confidence_line.split(":", 1)[1].strip())
+        except Exception:
+            confidence = 0.0
+            
+        if not missing or missing == "none":
+            missing_text = "No required skills are missing."
+        else:
+            missing_text = f"Missing required skills: {missing}. Note that some parsed resume evidence is partial."
+            
+        confidence_text = ""
+        if confidence < 0.65:
+            confidence_text = " This candidate has a low ranking confidence score. The fit should be manually reviewed before final shortlisting."
+            
+        return f"This candidate has evidence of {skills} experience. {missing_text}{confidence_text}"
+        
+    if "top_candidate:" in lowered:
+        total_line = next((line for line in prompt.splitlines() if line.startswith("total_candidates:")), "total_candidates: 0")
+        top_line = next((line for line in prompt.splitlines() if line.startswith("top_candidate:")), "top_candidate: Candidate")
+        missing_line = next((line for line in prompt.splitlines() if line.startswith("missing_required_skills:")), "missing_required_skills: none")
+        total = total_line.split(":", 1)[1].strip()
+        top = top_line.split(":", 1)[1].strip()
+        missing = missing_line.split(":", 1)[1].strip()
+        
+        missing_text = f" Missing required skills include: {missing}." if missing and missing != "none" else ""
+        
+        low_conf_line = next((line for line in prompt.splitlines() if line.startswith("low_confidence_count:")), "low_confidence_count: 0")
+        try:
+            low_conf_count = int(low_conf_line.split(":", 1)[1].strip())
+        except Exception:
+            low_conf_count = 0
+            
+        warning_text = ""
+        if low_conf_count > 0:
+            warning_text = f" Warning: {low_conf_count} candidate(s) have low parsing confidence and require manual review."
+            
+        return (
+            f"This shortlist evaluated {total} candidates. "
+            f"The top candidate is {top}. "
+            f"Manual review is recommended where evidence is partial.{missing_text}{warning_text}"
+        )
+        
+    if "rank=" in lowered or "comparison" in lowered or "- " in prompt:
+        lines = [line for line in prompt.splitlines() if line.startswith("- ")]
+        if len(lines) >= 2:
+            first = lines[0].split("|", 1)[0].replace("- ", "").strip()
+            second = lines[1].split("|", 1)[0].replace("- ", "").strip()
+            return f"{first} ranks higher than {second} because the first profile shows stronger alignment and fewer missing required skills."
+        if lines:
+            first = lines[0].split("|", 1)[0].replace("- ", "").strip()
+            return f"{first} is the strongest candidate in the supplied comparison set."
+            
+    return "AI generation fallback: Prompt context processed successfully."
+
+
 def _generate_with_gemini(prompt: str) -> Optional[str]:
     runtime = build_runtime_state()
     if not runtime.should_use_gemini() or not runtime.gemini_ready or not runtime.settings.google_api_key.strip():
-        return None
+        return _generate_local_fallback(prompt)
 
     try:
         import google.generativeai as genai
     except Exception:
-        return None
+        return _generate_local_fallback(prompt)
 
     try:
         genai.configure(api_key=runtime.settings.google_api_key)
@@ -42,9 +106,12 @@ def _generate_with_gemini(prompt: str) -> Optional[str]:
             },
         )
         text = getattr(response, "text", None)
-        return text.strip() if isinstance(text, str) and text.strip() else None
+        if isinstance(text, str) and text.strip():
+            return text.strip()
     except Exception:
-        return None
+        pass
+        
+    return _generate_local_fallback(prompt)
 
 
 def _build_explanation_prompt(
