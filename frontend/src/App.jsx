@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/layout/Layout.jsx'
 import LoginPage from './pages/LoginPage.jsx'
+import HomePage from './pages/HomePage.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import JobsPage from './pages/JobsPage.jsx'
 import JobDetailPage from './pages/JobDetailPage.jsx'
@@ -22,7 +23,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public routes — no auth required */}
+        <Route path="/home" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
+
+        {/* Protected app shell */}
         <Route
           path="/"
           element={
@@ -43,7 +48,8 @@ export default function App() {
           <Route path="alerts" element={<AlertsPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+
+        <Route path="*" element={<Navigate to="/home" replace />} />
       </Routes>
     </BrowserRouter>
   )
