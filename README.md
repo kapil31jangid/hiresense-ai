@@ -81,30 +81,22 @@ The API returns structured error responses with a `request_id` for traceability.
 
 ## Official Dataset Runner
 
-The organizer dataset is configured through `.env` so the large files stay outside git. Set these values locally:
+The organizer dataset is stored in Google Cloud Storage (`hiresense-ai` bucket) and configured to automatically download and index locally on first run.
 
-```env
-CHALLENGE_DATASET_DIR=C:\path\to\India_runs_data_and_ai_challenge
-CHALLENGE_CANDIDATES_PATH=C:\path\to\India_runs_data_and_ai_challenge\candidates.jsonl
-CHALLENGE_SAMPLE_CANDIDATES_PATH=C:\path\to\India_runs_data_and_ai_challenge\sample_candidates.json
-CHALLENGE_SCHEMA_PATH=C:\path\to\India_runs_data_and_ai_challenge\candidate_schema.json
-CHALLENGE_SAMPLE_SUBMISSION_PATH=C:\path\to\India_runs_data_and_ai_challenge\sample_submission.csv
-CHALLENGE_INDEX_PATH=backend/data/challenge/candidate_index.json
-CHALLENGE_CALIBRATION_PATH=backend/data/challenge/sample_calibration.json
-CHALLENGE_SUBMISSION_OUTPUT_PATH=backend/exports/official_submission.csv
-```
-
-Prepare the dataset in two stages. This validates the 50-record sample and all 100,000 full
-records against the organizer schema, verifies the reference CSV header, then builds a
-byte-offset index over the full candidate corpus:
+To set up:
+1. Copy `.env.example` to `.env`.
+2. Ensure you are authenticated to Google Cloud (run `gcloud auth application-default login` on your local terminal).
+3. Prepare the dataset by running:
 
 ```bash
 cd backend
 python -m app.challenge.prepare_dataset
 ```
 
+This will automatically pull `candidates.jsonl.gz` and `sample_candidates.json` from Google Cloud Storage to your local workspace cache (`backend/data/challenge/`), validate them against the schema, and build the byte-offset index directly over the compressed gzip file.
+
 The sample file does not contain relevance labels. It is used only for schema and feature
-inspection, never for fitting or final score calibration. The full `candidates.jsonl` remains
+inspection, never for fitting or final score calibration. The full `candidates.jsonl.gz` remains
 the only inference corpus used by the webapp and final submission.
 
 Generate the final top-100 submission from the default configured dataset:
