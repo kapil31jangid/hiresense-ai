@@ -129,16 +129,11 @@ def is_enabled() -> bool:
 
 
 def _resolve_candidates_path() -> Optional[Path]:
-    settings = load_settings()
-    if settings.challenge_candidates_path:
-        path = Path(settings.challenge_candidates_path)
-        return path if path.exists() else None
-    if settings.challenge_dataset_dir:
-        for name in ("candidates.jsonl", "candidates.jsonl.gz"):
-            path = Path(settings.challenge_dataset_dir) / name
-            if path.exists():
-                return path
-    return None
+    try:
+        from app.challenge.offline_ranker import resolve_default_candidates_path
+        return resolve_default_candidates_path(use_sample=False)
+    except Exception:
+        return None
 
 
 def _load_prebuilt_index(path: Path) -> bool:
@@ -177,7 +172,7 @@ def ensure_index_loaded() -> None:
         return
 
     path = _resolve_candidates_path()
-    if path is None or path.suffix.lower() == ".gz":
+    if path is None:
         _index_loaded = True
         return
 
@@ -186,7 +181,9 @@ def ensure_index_loaded() -> None:
         _index_loaded = True
         return
 
-    with open(path, "rb") as handle:
+    import gzip
+    opener = gzip.open if path.suffix.lower() == ".gz" else open
+    with opener(path, "rb") as handle:
         while True:
             offset = handle.tell()
             line = handle.readline()
@@ -218,9 +215,9 @@ def has_candidate(candidate_id: str) -> bool:
 
 def get_candidate(candidate_id: str) -> Optional[Dict[str, Any]]:
     ensure_index_loaded()
-    if _dataset_path is None or candidate_id not in _candidate_offsets:
-        return None
-    with open(_dataset_path, "rb") as handle:
+    import gzip
+    opener = gzip.open if _dataset_path.suffix.lower() == ".gz" else open
+    with opener(_dataset_path, "rb") as handle:
         handle.seek(_candidate_offsets[candidate_id])
         line = handle.readline()
     if not line:

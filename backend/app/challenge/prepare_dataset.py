@@ -82,6 +82,8 @@ def _resolve_bundle_file(configured: str, dataset_dir: str, filename: str) -> Pa
         path = Path(dataset_dir) / filename
     else:
         raise FileNotFoundError(f"No path configured for organizer file: {filename}")
+    if not path.is_absolute():
+        path = REPOSITORY_ROOT / path
     if not path.exists():
         raise FileNotFoundError(f"Organizer file does not exist: {path}")
     return path
@@ -181,15 +183,14 @@ def build_full_index(
     validator: Draft7Validator,
     schema_path: Path,
 ) -> Dict[str, Any]:
-    if candidates_path.suffix.lower() == ".gz":
-        raise ValueError("Webapp byte-offset indexing requires an uncompressed candidates.jsonl file.")
-
     summaries: List[Dict[str, Any]] = []
     candidate_ids: set[str] = set()
     duplicate_ids: List[str] = []
     malformed_count = 0
 
-    with candidates_path.open("rb") as handle:
+    import gzip
+    opener = gzip.open if candidates_path.suffix.lower() == ".gz" else open
+    with opener(candidates_path, "rb") as handle:
         while True:
             offset = handle.tell()
             line = handle.readline()
