@@ -262,19 +262,24 @@ def resolve_default_candidates_path(use_sample: bool = False) -> Path:
     configured_path = settings.challenge_sample_candidates_path if use_sample else settings.challenge_candidates_path
     if configured_path:
         candidate_path = Path(configured_path)
+        if not candidate_path.is_absolute():
+            candidate_path = REPOSITORY_ROOT / candidate_path
         if candidate_path.exists():
             return candidate_path
-        raise FileNotFoundError(f"Configured challenge candidates path does not exist: {candidate_path}")
-
-    dataset_dir = Path(settings.challenge_dataset_dir) if settings.challenge_dataset_dir else Path("demo_data")
-    candidate_names = ["sample_candidates.json"] if use_sample else ["candidates.jsonl.gz", "candidates.jsonl"]
-    for candidate_name in candidate_names:
-        candidate_path = dataset_dir / candidate_name
+    else:
+        from app.challenge.downloader import DEFAULT_CACHE_DIR
+        candidate_path = DEFAULT_CACHE_DIR / ("sample_candidates.json" if use_sample else "candidates.jsonl")
         if candidate_path.exists():
             return candidate_path
 
-    searched = ", ".join(str(dataset_dir / name) for name in candidate_names)
-    raise FileNotFoundError(f"No default challenge candidates file found. Searched: {searched}")
+    try:
+        from app.challenge.downloader import download_and_decompress
+        return download_and_decompress(use_sample=use_sample)
+    except Exception as e:
+        raise FileNotFoundError(
+            f"Dataset file not found locally and GCS download failed.\n"
+            f"Please run dataset preparation or configure correct paths.\nDetail: {e}"
+        ) from e
 
 
 def resolve_output_path(output_path: str | Path) -> Path:
