@@ -75,10 +75,12 @@ describe('DashboardPage', () => {
   it('renders summary cards with correct values on success', async () => {
     mockFetch(DASHBOARD_OK, ALERTS_OK)
     renderDashboard()
-    await waitFor(() => expect(screen.getByText('8')).toBeInTheDocument())
-    expect(screen.getByText('142')).toBeInTheDocument()
-    expect(screen.getByText('5')).toBeInTheDocument()
-    expect(screen.getByText('2')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('8')).toBeInTheDocument()
+      expect(screen.getByText('142')).toBeInTheDocument()
+      expect(screen.getByText('5')).toBeInTheDocument()
+      expect(screen.getByText('2')).toBeInTheDocument()
+    })
   })
 
   it('shows FreshnessBadge with FRESH status', async () => {
@@ -91,7 +93,7 @@ describe('DashboardPage', () => {
     mockFetch(DASHBOARD_OK, ALERTS_OK)
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByText(/analytics updated/i)).toBeInTheDocument()
+      expect(screen.getByText(/last refreshed/i)).toBeInTheDocument()
     })
   })
 

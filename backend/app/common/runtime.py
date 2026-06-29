@@ -76,6 +76,7 @@ class AppSettings:
     challenge_calibration_path: str = field(default_factory=lambda: os.getenv("CHALLENGE_CALIBRATION_PATH", "backend/data/challenge/sample_calibration.json"))
     challenge_submission_output_path: str = field(default_factory=lambda: os.getenv("CHALLENGE_SUBMISSION_OUTPUT_PATH", "backend/exports/official_submission.csv"))
     challenge_dataset_autoload: str = field(default_factory=lambda: os.getenv("CHALLENGE_DATASET_AUTOLOAD", "false"))
+    firestore_enabled: str = field(default_factory=lambda: os.getenv("FIRESTORE_ENABLED", "true"))
 
     def firebase_credentials_dict(self) -> Optional[Dict[str, Any]]:
         raw = self.firebase_service_account_json.strip()
@@ -162,6 +163,9 @@ def _try_initialize_firebase(settings: AppSettings) -> Tuple[bool, str, Any, Any
     except Exception:
         return False, "missing_dependency", None, None
 
+    if str(settings.firestore_enabled).lower() != "true":
+        return False, "not_configured", None, None
+
     creds_info = settings.firebase_credentials_dict()
     firebase_app = None
     firestore_client = None
@@ -178,6 +182,17 @@ def _try_initialize_firebase(settings: AppSettings) -> Tuple[bool, str, Any, Any
             return False, "not_configured", None, None
 
         firestore_client = firestore.client(app=firebase_app)
+        
+        # Probe Firestore to verify the database exists and is accessible
+        try:
+            list(firestore_client.collection("_probe").limit(1).stream())
+        except Exception as e:
+            import logging
+            logging.getLogger("hiresense_api").warning(
+                f"Firestore database probe failed. Disabling Firestore storage: {e}"
+            )
+            return False, "not_configured", firebase_app, None
+
         return True, "ready", firebase_app, firestore_client
     except Exception:
         return False, "degraded", firebase_app, firestore_client

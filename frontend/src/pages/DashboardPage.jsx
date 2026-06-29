@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { analyticsApi } from '../api/analytics.js'
 import { alertsApi } from '../api/alerts.js'
@@ -199,7 +199,11 @@ export default function DashboardPage() {
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-100">{a.title}</p>
                         <p className="mt-1 text-xs uppercase tracking-[0.22em] text-slate-500">
-                          {a.candidate_id ? `Candidate ${a.candidate_id}` : 'Candidate unknown'}
+                          {a.candidate_id
+                            ? `Candidate ${a.candidate_id}`
+                            : a.job_id
+                            ? `Job ${a.job_id}`
+                            : a.alert_type.replace(/_/g, ' ')}
                         </p>
                         <p className="mt-3 text-sm leading-6 text-slate-400">{a.message}</p>
                       </div>
