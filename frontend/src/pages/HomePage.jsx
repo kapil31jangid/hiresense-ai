@@ -1,14 +1,16 @@
 import { useNavigate } from 'react-router-dom'
 
 /* ─── SVG icon components (no external deps) ──────────────────────────── */
-function Icon({ d, size = 20 }) {
+function Icon({ d, size = 20, className = '' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      className={className}
       stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
       <path d={d} />
     </svg>
   )
 }
+
 const icons = {
   search:      'M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z',
   brain:       'M9.5 2a2.5 2.5 0 0 1 5 0v1A2.5 2.5 0 0 1 17 5.5V7h1a3 3 0 0 1 0 6h-1v1.5A2.5 2.5 0 0 1 14.5 17H14v2.5a2.5 2.5 0 0 1-5 0V17h-.5A2.5 2.5 0 0 1 6 14.5V13H5a3 3 0 0 1 0-6h1V5.5A2.5 2.5 0 0 1 8.5 3H9.5z',
@@ -38,27 +40,10 @@ function Section({ id, children, className = '' }) {
   )
 }
 
-/* ─── Section label + heading ──────────────────────────────────────────── */
-function SectionHeading({ eyebrow, title, subtitle, center = false }) {
-  return (
-    <div className={`mb-12 ${center ? 'text-center' : ''}`}>
-      {eyebrow && (
-        <p className="label-muted mb-3 tracking-widest text-brand-400">{eyebrow}</p>
-      )}
-      <h2 className="text-3xl md:text-4xl font-bold text-slate-100 leading-tight">{title}</h2>
-      {subtitle && (
-        <p className="mt-4 text-base text-slate-400 max-w-2xl leading-relaxed mx-auto">
-          {subtitle}
-        </p>
-      )}
-    </div>
-  )
-}
-
 /* ─── Challenge / Problem card ─────────────────────────────────────────── */
 function ProblemCard({ icon, title, description }) {
   return (
-    <div className="group relative flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-6 hover:border-slate-700 transition-all duration-300 hover:bg-slate-900/90">
+    <div className="group relative flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-6 hover:border-slate-700/60 hover:bg-slate-900/90 transition-all duration-300">
       <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
         <Icon d={icons[icon]} size={18} />
       </div>
@@ -70,39 +55,26 @@ function ProblemCard({ icon, title, description }) {
   )
 }
 
-/* ─── Solution card ────────────────────────────────────────────────────── */
-function SolutionCard({ icon, title, description }) {
+/* ─── Principle card ───────────────────────────────────────────────────── */
+function PrincipleCard({ title, description }) {
   return (
-    <div className="group flex flex-col gap-4 rounded-2xl border border-brand-800/40 bg-brand-950/20 p-6 hover:border-brand-700/60 transition-all duration-300 hover:bg-brand-950/40">
+    <div className="group rounded-2xl border border-slate-800 bg-slate-900/30 p-6 hover:border-slate-700 hover:bg-slate-900/50 transition-all duration-300">
+      <h3 className="text-sm font-semibold text-slate-100 mb-2">{title}</h3>
+      <p className="text-sm text-slate-400 leading-relaxed">{description}</p>
+    </div>
+  )
+}
+
+/* ─── Capability card ──────────────────────────────────────────────────── */
+function CapabilityCard({ icon, title, description }) {
+  return (
+    <div className="group relative flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-6 hover:border-slate-700/60 hover:bg-slate-900/90 transition-all duration-300">
       <div className="w-10 h-10 rounded-xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-400">
         <Icon d={icons[icon]} size={18} />
       </div>
       <div>
         <h3 className="text-sm font-semibold text-slate-100 mb-1.5">{title}</h3>
         <p className="text-sm text-slate-400 leading-relaxed">{description}</p>
-      </div>
-    </div>
-  )
-}
-
-/* ─── Capability card ──────────────────────────────────────────────────── */
-function CapabilityCard({ icon, title, description, accent = false }) {
-  return (
-    <div className={`group relative flex flex-col gap-3 rounded-2xl border p-5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg
-      ${accent
-        ? 'border-brand-700/40 bg-brand-950/30 hover:border-brand-600/60 hover:shadow-brand-900/30'
-        : 'border-slate-800 bg-slate-900/50 hover:border-slate-700 hover:shadow-slate-900/50'
-      }`}>
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center
-        ${accent
-          ? 'bg-brand-500/15 text-brand-400 border border-brand-500/25'
-          : 'bg-slate-800 text-slate-400 border border-slate-700'
-        }`}>
-        <Icon d={icons[icon]} size={16} />
-      </div>
-      <div>
-        <h3 className="text-sm font-semibold text-slate-200 mb-1">{title}</h3>
-        <p className="text-xs text-slate-400 leading-relaxed">{description}</p>
       </div>
     </div>
   )
@@ -118,7 +90,7 @@ function TrustPillar({ icon, title, points }) {
         </div>
         <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
       </div>
-      <ul className="space-y-2">
+      <ul className="space-y-3">
         {points.map((p, i) => (
           <li key={i} className="flex items-start gap-2.5 text-sm text-slate-400">
             <span className="mt-0.5 text-brand-500 shrink-0">
@@ -133,42 +105,41 @@ function TrustPillar({ icon, title, points }) {
 }
 
 /* ─── Navbar ────────────────────────────────────────────────────────────── */
-function Navbar({ onLogin }) {
+function Navbar({ onPlatformClick }) {
   return (
     <nav className="sticky top-0 z-50 h-16 flex items-center justify-between px-6 md:px-12 lg:px-24 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/60">
       <div className="flex items-center gap-2">
-        <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
+        <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center text-white">
           <Icon d={icons.brain} size={14} />
         </div>
-        <span className="text-base font-bold text-brand-400 tracking-tight">HireSense</span>
-        <span className="text-base font-bold text-slate-100">AI</span>
+        <span className="text-base font-bold text-slate-100 tracking-tight">
+          HireSense <span className="font-bold text-slate-100">AI</span>
+        </span>
       </div>
       <div className="flex items-center gap-3">
         <button
-          id="home-nav-login"
-          onClick={onLogin}
-          className="btn-secondary text-xs px-3 py-1.5"
-        >
-          Sign in
-        </button>
-        <button
           id="home-nav-get-started"
-          onClick={onLogin}
-          className="btn-primary text-xs px-3 py-1.5"
+          onClick={onPlatformClick}
+          className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5 group font-medium"
         >
-          Open platform →
+          Login →
         </button>
       </div>
     </nav>
   )
 }
 
-/* ─── Stat badge ────────────────────────────────────────────────────────── */
-function StatBadge({ value, label }) {
+/* ─── Hero Feature Card ────────────────────────────────────────────────── */
+function HeroFeatureCard({ icon, title, description }) {
   return (
-    <div className="flex flex-col items-center gap-1 px-8 border-r border-slate-800 last:border-0">
-      <span className="text-2xl font-bold text-brand-400">{value}</span>
-      <span className="text-xs text-slate-500 text-center leading-tight">{label}</span>
+    <div className="flex items-start gap-4 p-4 rounded-xl hover:bg-slate-900/40 transition-colors duration-300">
+      <div className="w-8 h-8 rounded-lg bg-slate-800/50 border border-slate-700/60 flex items-center justify-center text-slate-400 shrink-0 mt-0.5">
+        <Icon d={icons[icon]} size={16} />
+      </div>
+      <div>
+        <h4 className="text-sm font-semibold text-slate-100 mb-1">{title}</h4>
+        <p className="text-xs text-slate-400 leading-relaxed">{description}</p>
+      </div>
     </div>
   )
 }
@@ -176,321 +147,256 @@ function StatBadge({ value, label }) {
 /* ─── Main page ─────────────────────────────────────────────────────────── */
 export default function HomePage() {
   const navigate = useNavigate()
-  const goToLogin = () => navigate('/login')
+
+  const handlePlatformClick = () => {
+    navigate('/login')
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-      <Navbar onLogin={goToLogin} />
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans relative overflow-x-hidden">
+      {/* Elegant background gradients and decorative circular outlines */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        {/* Subtle radial gradients */}
+        <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[50%] rounded-full bg-brand-500/5 blur-[120px]" />
+        <div className="absolute top-[20%] right-[-10%] w-[60%] h-[60%] rounded-full bg-violet-500/5 blur-[150px]" />
+        <div className="absolute bottom-[-10%] left-[20%] w-[60%] h-[50%] rounded-full bg-brand-600/5 blur-[120px]" />
+        
+        {/* Faint decorative circular outlines */}
+        <div className="absolute top-[10%] left-[-5%] w-[400px] h-[400px] rounded-full border border-slate-800/10" />
+        <div className="absolute top-[8%] left-[-7%] w-[600px] h-[600px] rounded-full border border-slate-800/5" />
+        <div className="absolute top-[35%] right-[-5%] w-[500px] h-[500px] rounded-full border border-slate-800/10" />
+        <div className="absolute bottom-[15%] left-[10%] w-[450px] h-[450px] rounded-full border border-slate-800/10" />
+      </div>
+
+      <Navbar onPlatformClick={handlePlatformClick} />
 
       {/* ── 1. HERO ──────────────────────────────────────────────────────── */}
-      <Section className="pt-24 pb-20 relative overflow-hidden">
-        {/* Background glow */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -top-32 left-1/2 -translate-x-1/2 w-[700px] h-[700px] rounded-full bg-brand-600/8 blur-3xl" />
-          <div className="absolute top-1/4 right-0 w-96 h-96 rounded-full bg-violet-700/6 blur-3xl" />
-        </div>
+      <Section className="py-28 md:py-36 lg:py-48 relative overflow-hidden flex items-center min-h-[calc(100vh-4rem)] lg:min-h-[700px]">
+        <div className="relative max-w-6xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+          {/* Left Column (Content) */}
+          <div className="lg:col-span-7 flex flex-col items-start text-left justify-center h-full">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-brand-700/40 bg-brand-950/60 text-brand-300 text-xs font-semibold tracking-wider uppercase mb-6">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse-slow" />
+              Recruiter-first hiring decisions
+            </div>
 
-        <div className="relative max-w-4xl">
-          {/* Eyebrow badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-brand-700/40 bg-brand-950/60 text-brand-300 text-xs font-medium mb-8 backdrop-blur-sm">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse-slow" />
-            AI-Powered Candidate Ranking Platform
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.1] tracking-tight mb-6 text-slate-100">
+              Move from resumes to
+              <br />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 via-indigo-400 to-purple-400">
+                confident hiring decisions.
+              </span>
+            </h1>
+
+            <p className="text-base md:text-lg text-slate-400 leading-relaxed mb-8 max-w-xl">
+              HireSense AI helps recruiters evaluate candidates with evidence, clarity, and context — so shortlist decisions are grounded in what matters.
+            </p>
+
+            <button
+              id="hero-cta-login"
+              onClick={handlePlatformClick}
+              className="btn-primary px-6 py-3 text-sm font-medium flex items-center gap-2 group"
+            >
+              Login →
+            </button>
           </div>
 
-          <h1 className="text-5xl md:text-6xl font-bold leading-[1.1] tracking-tight mb-6">
-            Rank candidates
-            <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-violet-400">
-              the way recruiters think.
-            </span>
-          </h1>
+          {/* Right Column (Feature Panel) */}
+          <div className="lg:col-span-5 flex flex-col w-full">
+            <div className="relative rounded-2xl border border-slate-800/80 bg-slate-900/30 backdrop-blur-md p-6 lg:p-8 shadow-2xl overflow-hidden">
+              {/* Subtle glass glow inside */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/5 blur-2xl rounded-full pointer-events-none" />
+              
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-6 block">
+                WHAT RECRUITERS SEE
+              </div>
+              
+              <div className="flex flex-col gap-3">
+                <HeroFeatureCard
+                  icon="brain"
+                  title="Context over keywords"
+                  description="Understand candidate intent and capabilities rather than simple word overlap."
+                />
+                <HeroFeatureCard
+                  icon="missing"
+                  title="Skill gaps made visible"
+                  description="Spot critical missing credentials or skills before scheduling interviews."
+                />
+                <HeroFeatureCard
+                  icon="explain"
+                  title="Reasoning that can be reviewed"
+                  description="Verify ranking decisions with clear, parsed evidence instead of black-box guesses."
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
 
-          <p className="text-lg text-slate-400 leading-relaxed max-w-2xl mb-10">
-            HireSense AI combines semantic understanding, structured requirement matching,
-            and behavioral signals to surface the right candidates — with clear explanations
-            and confidence scores every recruiter can trust.
+      {/* ── 2. WHY HIRING FEELS HARDER ───────────────────────────────────── */}
+      <Section id="challenges" className="py-24 border-t border-slate-800/40 relative">
+        <div className="max-w-6xl mx-auto text-left">
+          <p className="label-muted mb-3 tracking-widest text-brand-400">WHY HIRING FEELS HARDER</p>
+          <h2 className="text-3xl md:text-4xl font-bold text-slate-100 leading-tight">
+            Traditional screening leaves too much to guesswork
+          </h2>
+          <p className="mt-4 text-base text-slate-400 max-w-2xl leading-relaxed mb-12">
+            Recruiters need better signals, not more volume.
           </p>
 
-          <div className="flex flex-wrap gap-3 mb-16">
-            <button
-              id="hero-cta-primary"
-              onClick={goToLogin}
-              className="btn-primary px-6 py-3 text-sm"
-            >
-              Open the platform
-              <Icon d={icons.arrow} size={16} />
-            </button>
-            <button
-              id="hero-cta-secondary"
-              onClick={() => document.getElementById('capabilities')?.scrollIntoView({ behavior: 'smooth' })}
-              className="btn-secondary px-6 py-3 text-sm"
-            >
-              Explore capabilities
-            </button>
-          </div>
-
-          {/* Stats bar */}
-          <div className="inline-flex rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm overflow-hidden">
-            <StatBadge value="Hybrid" label="Semantic + structured ranking" />
-            <StatBadge value="AI" label="Grounded explanations" />
-            <StatBadge value="100%" label="Evidence-backed scoring" />
-            <StatBadge value="Real-time" label="Confidence visibility" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <ProblemCard
+              icon="noise"
+              title="Keyword filters create false confidence"
+              description="The right words can hide weak fit, while strong candidates are missed when their experience is phrased differently."
+            />
+            <ProblemCard
+              icon="slow"
+              title="Reviewing volume manually is expensive"
+              description="The more candidates there are, the harder it becomes to keep shortlist quality high and decisions consistent."
+            />
+            <ProblemCard
+              icon="alert"
+              title="Black-box ranking erodes trust"
+              description="When recommendations appear without context, recruiters cannot tell whether the shortlist is genuinely aligned to the role."
+            />
           </div>
         </div>
       </Section>
 
-      {/* ── 2. PROBLEMS → SOLUTIONS ───────────────────────────────────────── */}
-      <Section id="challenges" className="py-20 border-t border-slate-800/40">
-        <SectionHeading
-          eyebrow="The hiring challenge"
-          title="Why traditional hiring tools fall short"
-          subtitle="Recruiters face compounding problems that slow down decisions and erode shortlist quality."
-        />
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-16">
-          <ProblemCard
-            icon="noise"
-            title="Keyword noise over true fit"
-            description="Keyword-only filters miss strong candidates who express the same skill differently, and surface weak ones who merely mention the right words."
-          />
-          <ProblemCard
-            icon="missing"
-            title="Hidden skill gaps"
-            description="Required skills go unchecked at shortlist time. Recruiters discover gaps in interviews, not before — wasting time for everyone."
-          />
-          <ProblemCard
-            icon="slow"
-            title="Manual ranking at scale"
-            description="Reviewing hundreds of resumes by hand is slow, inconsistent, and not repeatable. Signal gets lost in volume."
-          />
-          <ProblemCard
-            icon="bias"
-            title="Unexplained recommendations"
-            description="When AI tools rank without explanation, recruiters cannot verify decisions, audit outcomes, or build trust in the shortlist."
-          />
-          <ProblemCard
-            icon="chart"
-            title="Stale hiring insights"
-            description="Analytics dashboards often lag behind actual pipeline state, making it impossible to act on current data with confidence."
-          />
-          <ProblemCard
-            icon="alert"
-            title="No early warning system"
-            description="Low-confidence rankings and parsing failures go unnoticed. There is no proactive signal when the shortlist needs review."
-          />
-        </div>
-
-        {/* Connector */}
-        <div className="flex items-center justify-center gap-4 mb-16">
-          <div className="h-px flex-1 bg-gradient-to-r from-transparent to-brand-700/40" />
-          <div className="flex items-center gap-2 px-5 py-2.5 rounded-full border border-brand-700/40 bg-brand-950/60 text-brand-300 text-sm font-medium">
-            <span className="text-brand-400">→</span>
-            How HireSense AI solves this
+      {/* ── 3. WHAT BETTER HIRING LOOKS LIKE ─────────────────────────────── */}
+      <Section id="better-hiring" className="py-24 border-t border-slate-800/40 relative">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+          <div className="lg:col-span-5 flex flex-col items-start text-left">
+            <p className="label-muted mb-3 tracking-widest text-brand-400">WHAT BETTER HIRING LOOKS LIKE</p>
+            <h2 className="text-3xl md:text-4xl font-bold text-slate-100 leading-tight">
+              Modern recruiting should feel clear, guided, and evidence-based
+            </h2>
+            <p className="mt-4 text-base text-slate-400 leading-relaxed">
+              The goal is not more automation. It is better decision support.
+            </p>
           </div>
-          <div className="h-px flex-1 bg-gradient-to-l from-transparent to-brand-700/40" />
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <SolutionCard
-            icon="search"
-            title="Semantic candidate retrieval"
-            description="FAISS-powered vector search understands candidate intent, not just word overlap. Strong candidates surface regardless of resume style."
-          />
-          <SolutionCard
-            icon="missing"
-            title="Explicit missing skill detection"
-            description="Required skills are matched against parsed candidate evidence. Gaps are surfaced directly in the shortlist — before interviews happen."
-          />
-          <SolutionCard
-            icon="brain"
-            title="Hybrid ranked shortlists"
-            description="Semantic similarity, structured requirement matching, experience depth, and behavioral signals are combined into a single ranked output."
-          />
-          <SolutionCard
-            icon="explain"
-            title="Grounded AI explanations"
-            description="Every ranking decision is explained using parsed evidence only. No invented skills, no hallucinated reasoning — just recruiter-readable facts."
-          />
-          <SolutionCard
-            icon="chart"
-            title="Real-time analytics freshness"
-            description="Every analytics view carries a freshness status and timestamp so recruiters always know whether data is current before acting on it."
-          />
-          <SolutionCard
-            icon="alert"
-            title="Proactive ranking alerts"
-            description="Low-confidence rankings, parsing failures, and stale embeddings trigger alerts before they affect your shortlist quality."
-          />
+          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <PrincipleCard
+              title="Evidence over assumptions"
+              description="Candidates are assessed against parsed signals that can be inspected and reviewed."
+            />
+            <PrincipleCard
+              title="Transparency over black-box output"
+              description="Rankings include rationale that helps recruiters understand why a profile rose in the list."
+            />
+            <PrincipleCard
+              title="Context over keywords"
+              description="The platform reads role intent and candidate evidence together rather than matching on surface words alone."
+            />
+            <PrincipleCard
+              title="Recruiter control over automation"
+              description="The workflow supports final judgment instead of replacing it."
+            />
+          </div>
         </div>
       </Section>
 
-      {/* ── 3. CORE CAPABILITIES ─────────────────────────────────────────── */}
-      <Section id="capabilities" className="py-20 border-t border-slate-800/40">
-        <SectionHeading
-          eyebrow="Platform capabilities"
-          title="Everything recruiters need in one place"
-          subtitle="Built around the full hiring workflow — from job intake to ranked shortlist export."
-          center
-        />
+      {/* ── 4. HOW HIRESENSE AI HELPS ────────────────────────────────────── */}
+      <Section id="capabilities" className="py-24 border-t border-slate-800/40">
+        <div className="max-w-6xl mx-auto text-center">
+          <p className="label-muted mb-3 tracking-widest text-brand-400">HOW HIRESENSE AI HELPS</p>
+          <h2 className="text-3xl md:text-4xl font-bold text-slate-100 leading-tight">
+            A focused product experience for recruiter decision-making
+          </h2>
+          <p className="mt-4 text-base text-slate-400 max-w-2xl leading-relaxed mx-auto mb-12">
+            The platform is designed to make the shortlist faster to review and easier to trust.
+          </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <CapabilityCard
-            icon="search"
-            accent
-            title="Semantic Candidate Ranking"
-            description="FAISS vector search retrieves the most contextually relevant candidates for each job description."
-          />
-          <CapabilityCard
-            icon="explain"
-            accent
-            title="AI Fit Explanations"
-            description="Structured, evidence-backed explanations for every ranked candidate — readable and verifiable by recruiters."
-          />
-          <CapabilityCard
-            icon="compare"
-            accent
-            title="Side-by-Side Comparison"
-            description="Compare shortlisted candidates across skills, experience, and behavioral signals with AI-generated analysis."
-          />
-          <CapabilityCard
-            icon="missing"
-            accent
-            title="Missing Skill Detection"
-            description="Required skills that candidates lack are surfaced explicitly in rankings and explanations."
-          />
-          <CapabilityCard
-            icon="confidence"
-            title="Confidence-Aware Ranking"
-            description="Every ranking includes a confidence score based on evidence quality, profile completeness, and parsing certainty."
-          />
-          <CapabilityCard
-            icon="alert"
-            title="Recruiter Alerts"
-            description="Active alerts surface low-confidence rankings, parsing failures, and stale embedding conditions automatically."
-          />
-          <CapabilityCard
-            icon="chart"
-            title="Hiring Analytics"
-            description="Ranking quality, skill distribution, candidate funnel, and hiring insights with freshness indicators."
-          />
-          <CapabilityCard
-            icon="export"
-            title="CSV Shortlist Export"
-            description="Export ranked shortlists in the standard submission format — computed, not re-ranked at export time."
-          />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <CapabilityCard
+              icon="search"
+              title="Role-aware ranking"
+              description="The shortlist reflects the job description and the evidence behind it."
+            />
+            <CapabilityCard
+              icon="missing"
+              title="Skill gaps made explicit"
+              description="Missing requirements remain visible, so recruiters can decide quickly and accurately."
+            />
+            <CapabilityCard
+              icon="explain"
+              title="Clear rationale"
+              description="Each candidate is supported by evidence that helps frame the final review."
+            />
+          </div>
         </div>
       </Section>
 
-      {/* ── 4. WHY HIRESENSE AI ──────────────────────────────────────────── */}
-      <Section id="trust" className="py-20 border-t border-slate-800/40">
+      {/* ── 5. WHY RECRUITERS TRUST IT ───────────────────────────────────── */}
+      <Section id="trust" className="py-24 border-t border-slate-800/40 relative">
         {/* Background accent */}
         <div aria-hidden className="pointer-events-none absolute inset-x-0 overflow-hidden">
           <div className="mx-auto w-[600px] h-[400px] rounded-full bg-brand-900/10 blur-3xl" />
         </div>
 
-        <SectionHeading
-          eyebrow="Why HireSense AI"
-          title="Built for recruiter trust"
-          subtitle="Ranking speed matters. But so does knowing you can stand behind every shortlist."
-          center
-        />
+        <div className="max-w-6xl mx-auto text-center relative">
+          <p className="label-muted mb-3 tracking-widest text-brand-400">WHY RECRUITERS TRUST IT</p>
+          <h2 className="text-3xl md:text-4xl font-bold text-slate-100 leading-tight">
+            Dependable by design
+          </h2>
+          <p className="mt-4 text-base text-slate-400 max-w-2xl leading-relaxed mx-auto mb-12">
+            HireSense AI is built around transparency, reviewability, and clear product signals.
+          </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <TrustPillar
-            icon="eye"
-            title="Explainable recommendations"
-            points={[
-              'Every candidate ranking includes a readable explanation',
-              'Explanations reference parsed evidence, not raw resume text',
-              'Missing required skills are always explicitly listed',
-              'No black-box scores without supporting rationale',
-            ]}
-          />
-          <TrustPillar
-            icon="confidence"
-            title="Confidence-aware scoring"
-            points={[
-              'Confidence scores reflect evidence quality and profile completeness',
-              'Low-confidence rankings are flagged before they reach recruiters',
-              'Partial evidence is clearly marked, not silently ignored',
-              'Recruiters can filter and review by confidence threshold',
-            ]}
-          />
-          <TrustPillar
-            icon="shield"
-            title="Honest candidate assessment"
-            points={[
-              'The system never invents skills, experience, or achievements',
-              'Candidate truthfulness is a core system constraint',
-              'Behavioral signals are sourced from evidence-backed data only',
-              'Parsing failures are surfaced, not silently absorbed',
-            ]}
-          />
-          <TrustPillar
-            icon="human"
-            title="Human-in-the-loop hiring"
-            points={[
-              'AI supports the recruiter — it does not replace judgment',
-              'Every ranking action is an explicit recruiter decision',
-              'Comparison, explanation, and export are all recruiter-triggered',
-              'Alert lifecycle is managed by humans, not auto-resolved',
-            ]}
-          />
-          <TrustPillar
-            icon="chart"
-            title="Transparent analytics"
-            points={[
-              'Every dashboard shows when data was last updated',
-              'Freshness status tells recruiters if analytics is current',
-              'Stale data is clearly marked — not hidden or silently removed',
-              'Ranking quality metrics help identify pipeline health issues',
-            ]}
-          />
-          <TrustPillar
-            icon="brain"
-            title="Semantic depth over keywords"
-            points={[
-              'Contextual understanding surfaces candidates keyword filters miss',
-              'Hybrid scoring combines vector search with structured matching',
-              'Skill normalization prevents aliases from breaking matches',
-              'Embedding metadata is versioned and synchronized',
-            ]}
-          />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <TrustPillar
+              icon="shield"
+              title="Evidence-first"
+              points={[
+                'Rankings remain grounded in parsed candidate evidence',
+                'The platform does not invent experience or skills',
+              ]}
+            />
+            <TrustPillar
+              icon="confidence"
+              title="Confidence that is visible"
+              points={[
+                'Low-confidence results are surfaced early',
+                'Recruiters can review confidence without losing context',
+              ]}
+            />
+            <TrustPillar
+              icon="chart"
+              title="Freshness that stays clear"
+              points={[
+                'Analytics and alerts reflect current pipeline state',
+                'The experience remains aligned with what recruiters need next',
+              ]}
+            />
+          </div>
         </div>
       </Section>
 
-      {/* ── 5. FINAL CTA ─────────────────────────────────────────────────── */}
-      <Section className="py-20 border-t border-slate-800/40">
-        <div className="relative rounded-3xl border border-brand-800/40 bg-brand-950/30 overflow-hidden">
+      {/* ── 6. FINAL CTA ─────────────────────────────────────────────────── */}
+      <Section className="py-24 border-t border-slate-800/40">
+        <div className="relative max-w-6xl mx-auto rounded-3xl border border-brand-800/30 bg-gradient-to-b from-slate-900 to-brand-950/20 overflow-hidden shadow-xl">
           {/* Glow */}
           <div aria-hidden className="absolute inset-0 pointer-events-none">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-48 bg-brand-600/10 blur-3xl rounded-full" />
           </div>
 
           <div className="relative text-center px-6 py-20 max-w-2xl mx-auto">
-            <p className="label-muted text-brand-400 tracking-widest mb-4">Start ranking</p>
+            <p className="label-muted text-brand-400 tracking-widest mb-4">START RANKING</p>
             <h2 className="text-3xl md:text-4xl font-bold text-slate-100 mb-5 leading-tight">
               Ready to build a shortlist you can stand behind?
             </h2>
             <p className="text-base text-slate-400 mb-10 leading-relaxed">
-              Open the HireSense AI platform to upload jobs, parse resumes, run semantic rankings,
-              and generate AI-backed explanations — all in one recruiter workspace.
+              Open the HireSense AI platform to upload jobs, parse resumes, run semantic rankings, and generate AI-backed explanations — all in one recruiter workspace.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button
-                id="footer-cta-open"
-                onClick={goToLogin}
-                className="btn-primary px-8 py-3"
+                id="footer-cta-login"
+                onClick={handlePlatformClick}
+                className="btn-primary px-8 py-3 text-sm font-medium flex items-center gap-2 group"
               >
-                Open the platform
-                <Icon d={icons.arrow} size={16} />
-              </button>
-              <button
-                id="footer-cta-dashboard"
-                onClick={goToLogin}
-                className="btn-secondary px-8 py-3"
-              >
-                Go to dashboard
+                Login →
               </button>
             </div>
           </div>
@@ -498,7 +404,7 @@ export default function HomePage() {
       </Section>
 
       {/* ── FOOTER ───────────────────────────────────────────────────────── */}
-      <footer className="border-t border-slate-800/40 px-6 md:px-12 lg:px-24 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <footer className="border-t border-slate-800/40 px-6 md:px-12 lg:px-24 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 max-w-6xl mx-auto">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold text-brand-400">HireSense</span>
           <span className="text-sm font-bold text-slate-300">AI</span>
