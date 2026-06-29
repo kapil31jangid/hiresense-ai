@@ -376,6 +376,9 @@ class AlertItem(BaseModelWithConfig):
     message: str
     created_at: str
     job_id: Optional[str] = None
+    candidate_id: Optional[str] = None
+    acknowledged_at: Optional[str] = None
+    resolved_at: Optional[str] = None
 
 class AlertsResponse(BaseModelWithConfig):
     request_id: str

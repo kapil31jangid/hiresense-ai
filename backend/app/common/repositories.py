@@ -49,29 +49,51 @@ class FirestoreBackedStore(MutableMapping[str, Dict[str, Any]]):
                 data = _deserialize_value(snapshot.to_dict() or {})
                 if snapshot.id:
                     self._memory[snapshot.id] = data
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger("hiresense_api").warning(
+                f"Firestore collection.stream() failed for '{self.collection_name}': {exc}"
+            )
             return
 
     def _sync_set(self, key: str, value: Dict[str, Any]) -> None:
         collection = self._collection()
         if collection is not None:
-            collection.document(key).set(_serialize_value(value), merge=True)
+            try:
+                collection.document(key).set(_serialize_value(value), merge=True)
+            except Exception as exc:
+                import logging
+                logging.getLogger("hiresense_api").warning(
+                    f"Firestore document.set() failed for '{self.collection_name}/{key}': {exc}"
+                )
 
     def _sync_delete(self, key: str) -> None:
         collection = self._collection()
         if collection is not None:
-            collection.document(key).delete()
+            try:
+                collection.document(key).delete()
+            except Exception as exc:
+                import logging
+                logging.getLogger("hiresense_api").warning(
+                    f"Firestore document.delete() failed for '{self.collection_name}/{key}': {exc}"
+                )
 
     def __getitem__(self, key: str) -> Dict[str, Any]:
         if key in self._memory:
             return self._memory[key]
         collection = self._collection()
         if collection is not None:
-            snapshot = collection.document(key).get()
-            if snapshot.exists:
-                data = _deserialize_value(snapshot.to_dict() or {})
-                self._memory[key] = data
-                return data
+            try:
+                snapshot = collection.document(key).get()
+                if snapshot.exists:
+                    data = _deserialize_value(snapshot.to_dict() or {})
+                    self._memory[key] = data
+                    return data
+            except Exception as exc:
+                import logging
+                logging.getLogger("hiresense_api").warning(
+                    f"Firestore document.get() failed for '{self.collection_name}/{key}': {exc}"
+                )
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: Dict[str, Any]) -> None:
@@ -120,8 +142,14 @@ class FirestoreBackedStore(MutableMapping[str, Dict[str, Any]]):
         self._memory = deepcopy(records)
         collection = self._collection()
         if collection is not None:
-            for key, value in records.items():
-                collection.document(key).set(_serialize_value(value), merge=True)
+            try:
+                for key, value in records.items():
+                    collection.document(key).set(_serialize_value(value), merge=True)
+            except Exception as exc:
+                import logging
+                logging.getLogger("hiresense_api").warning(
+                    f"Firestore replace_all failed for '{self.collection_name}': {exc}"
+                )
 
 
 class FirestoreBackedListStore(MutableMapping[str, List[Dict[str, Any]]]):
@@ -150,7 +178,11 @@ class FirestoreBackedListStore(MutableMapping[str, List[Dict[str, Any]]]):
                 items = list(data.get("items", []))
                 if snapshot.id:
                     self._memory[snapshot.id] = items
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger("hiresense_api").warning(
+                f"Firestore collection.stream() failed for list store '{self.collection_name}': {exc}"
+            )
             return
 
     def __getitem__(self, key: str) -> List[Dict[str, Any]]:
@@ -158,26 +190,44 @@ class FirestoreBackedListStore(MutableMapping[str, List[Dict[str, Any]]]):
             return self._memory[key]
         collection = self._collection()
         if collection is not None:
-            snapshot = collection.document(key).get()
-            if snapshot.exists:
-                data = snapshot.to_dict() or {}
-                items = list(data.get("items", []))
-                self._memory[key] = items
-                return items
+            try:
+                snapshot = collection.document(key).get()
+                if snapshot.exists:
+                    data = snapshot.to_dict() or {}
+                    items = list(data.get("items", []))
+                    self._memory[key] = items
+                    return items
+            except Exception as exc:
+                import logging
+                logging.getLogger("hiresense_api").warning(
+                    f"Firestore document.get() failed for list store '{self.collection_name}/{key}': {exc}"
+                )
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: List[Dict[str, Any]]) -> None:
         self._memory[key] = deepcopy(value)
         collection = self._collection()
         if collection is not None:
-            collection.document(key).set({"items": _serialize_value(value)}, merge=True)
+            try:
+                collection.document(key).set({"items": _serialize_value(value)}, merge=True)
+            except Exception as exc:
+                import logging
+                logging.getLogger("hiresense_api").warning(
+                    f"Firestore document.set() failed for list store '{self.collection_name}/{key}': {exc}"
+                )
 
     def __delitem__(self, key: str) -> None:
         if key in self._memory:
             del self._memory[key]
         collection = self._collection()
         if collection is not None:
-            collection.document(key).delete()
+            try:
+                collection.document(key).delete()
+            except Exception as exc:
+                import logging
+                logging.getLogger("hiresense_api").warning(
+                    f"Firestore document.delete() failed for list store '{self.collection_name}/{key}': {exc}"
+                )
 
     def __iter__(self) -> Iterator[str]:
         self._sync_from_remote()

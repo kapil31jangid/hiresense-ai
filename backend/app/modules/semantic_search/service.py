@@ -273,6 +273,9 @@ class SemanticSearchService:
         entity_type: Optional[str] = None,
         entity_id: Optional[str] = None
     ) -> int:
+        from app.challenge import dataset_store as challenge_dataset
+        from app.modules.ranking.service import _rankings_db
+
         if entity_type and entity_type not in ("CANDIDATE", "JOB"):
             raise HireSenseException(400, "INVALID_REQUEST", f"Invalid entity_type: {entity_type}")
             
@@ -280,10 +283,10 @@ class SemanticSearchService:
             if not entity_type:
                 raise HireSenseException(400, "INVALID_REQUEST", "entity_type is required when entity_id is specified.")
             if entity_type == "CANDIDATE":
-                if entity_id not in _candidates_db:
+                if entity_id not in _candidates_db and not (challenge_dataset.is_enabled() and challenge_dataset.has_candidate(entity_id)):
                     raise HireSenseException(404, "CANDIDATE_NOT_FOUND", f"Candidate with ID {entity_id} was not found.")
             elif entity_type == "JOB":
-                if entity_id not in _jobs_db:
+                if entity_id not in _jobs_db and not (entity_id == "JOB_CHALLENGE_001"):
                     raise HireSenseException(404, "JOB_NOT_FOUND", f"Job with ID {entity_id} was not found.")
 
         jobs_to_check = []
@@ -294,14 +297,29 @@ class SemanticSearchService:
                 jobs_to_check = [entity_id]
             else:
                 jobs_to_check = list(_jobs_db.keys())
+                if challenge_dataset.is_enabled():
+                    jobs_to_check.append("JOB_CHALLENGE_001")
         elif entity_type == "CANDIDATE":
             if entity_id:
                 candidates_to_check = [entity_id]
             else:
                 candidates_to_check = list(_candidates_db.keys())
+                if challenge_dataset.is_enabled():
+                    for r in _rankings_db.values():
+                        for c in r.get("candidates", []):
+                            c_id = c["candidate_id"]
+                            if c_id not in candidates_to_check:
+                                candidates_to_check.append(c_id)
         else:
             jobs_to_check = list(_jobs_db.keys())
             candidates_to_check = list(_candidates_db.keys())
+            if challenge_dataset.is_enabled():
+                jobs_to_check.append("JOB_CHALLENGE_001")
+                for r in _rankings_db.values():
+                    for c in r.get("candidates", []):
+                        c_id = c["candidate_id"]
+                        if c_id not in candidates_to_check:
+                            candidates_to_check.append(c_id)
 
         refreshed_count = 0
         model = get_model()
@@ -309,7 +327,11 @@ class SemanticSearchService:
 
         # Process jobs
         for j_id in jobs_to_check:
-            job = _jobs_db[j_id]
+            if challenge_dataset.is_enabled() and j_id == "JOB_CHALLENGE_001":
+                from app.challenge.job_store import get_challenge_job
+                job = get_challenge_job()
+            else:
+                job = _jobs_db[j_id]
             title = job.get("title", "")
             req_skills = job.get("required_skills", [])
             pref_skills = job.get("preferred_skills", [])
@@ -319,8 +341,11 @@ class SemanticSearchService:
             emb_id = f"emb_job_{j_id}"
             existing = _embeddings_db.get(emb_id)
             
-            source_db_status = job.get("embedding_metadata", {}).get("status")
-            is_stale = existing is None or existing.get("source_hash") != source_hash or existing.get("status") == "STALE" or source_db_status == "STALE"
+            if j_id == "JOB_CHALLENGE_001":
+                source_db_status = "READY" if (existing and existing.get("status") == "READY") else "STALE"
+            else:
+                source_db_status = job.get("embedding_metadata", {}).get("status")
+            is_stale = existing is None or existing.get("source_hash") != source_hash or existing.get("status") == "STALE" or source_db_status == "STALE" or j_id not in _job_vectors
             if is_stale:
                 try:
                     vector = model.encode([source_text])[0]
@@ -380,7 +405,10 @@ class SemanticSearchService:
 
         # Process candidates
         for c_id in candidates_to_check:
-            cand = _candidates_db[c_id]
+            if challenge_dataset.is_enabled() and c_id not in _candidates_db:
+                cand = challenge_dataset.get_candidate(c_id)
+            else:
+                cand = _candidates_db[c_id]
             full_name = cand.get("full_name", "")
             skills = cand.get("normalized_skills", [])
             signals = cand.get("redrob_signals", [])
@@ -390,8 +418,11 @@ class SemanticSearchService:
             emb_id = f"emb_cand_{c_id}"
             existing = _embeddings_db.get(emb_id)
             
-            source_db_status = cand.get("embedding_metadata", {}).get("status")
-            is_stale = existing is None or existing.get("source_hash") != source_hash or existing.get("status") == "STALE" or source_db_status == "STALE"
+            if cand.get("source_type") == "CHALLENGE_DATASET":
+                source_db_status = "READY" if (existing and existing.get("status") == "READY") else "STALE"
+            else:
+                source_db_status = cand.get("embedding_metadata", {}).get("status")
+            is_stale = existing is None or existing.get("source_hash") != source_hash or existing.get("status") == "STALE" or source_db_status == "STALE" or c_id not in _candidate_vectors
             if is_stale:
                 try:
                     vector = model.encode([source_text])[0]

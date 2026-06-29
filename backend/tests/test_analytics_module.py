@@ -45,6 +45,9 @@ def analytics_sandbox():
     original_freshness = analytics_module._freshness_status
     original_aggregates = copy.deepcopy(analytics_module._analytics_aggregates)
 
+    from datetime import datetime, timezone, timedelta
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+
     _jobs_db.clear()
     _jobs_db["JOB_ANALYTICS_001"] = {
         "job_id": "JOB_ANALYTICS_001",
@@ -53,8 +56,8 @@ def analytics_sandbox():
         "required_skills": ["python", "fastapi"],
         "preferred_skills": ["postgresql"],
         "confidence_score": 0.93,
-        "created_at": "2026-05-27T14:30:00Z",
-        "updated_at": "2026-05-27T14:45:00Z",
+        "created_at": recent_date,
+        "updated_at": recent_date,
     }
 
     _candidates_db.clear()
@@ -64,8 +67,8 @@ def analytics_sandbox():
         "normalized_skills": ["python", "fastapi"],
         "confidence_score": 0.91,
         "parsing_status": "COMPLETED",
-        "created_at": "2026-05-27T15:00:00Z",
-        "updated_at": "2026-05-27T15:08:00Z",
+        "created_at": recent_date,
+        "updated_at": recent_date,
     }
     _candidates_db["CAND_ANALYTICS_002"] = {
         "candidate_id": "CAND_ANALYTICS_002",
@@ -73,8 +76,8 @@ def analytics_sandbox():
         "normalized_skills": ["python"],
         "confidence_score": 0.63,
         "parsing_status": "PARTIAL",
-        "created_at": "2026-05-27T15:02:00Z",
-        "updated_at": "2026-05-27T15:09:00Z",
+        "created_at": recent_date,
+        "updated_at": recent_date,
     }
 
     _rankings_db.clear()

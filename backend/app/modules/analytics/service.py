@@ -77,7 +77,13 @@ def _build_dashboard_summary(ranked_candidates: List[Dict[str, Any]]) -> Analyti
         for candidate in ranked_candidates
         if candidate.get("confidence_score", 0.0) < LOW_CONFIDENCE_THRESHOLD
     )
-    active_jobs = sum(1 for job in _jobs_db.values() if _enum_value(job.get("status")) == "ACTIVE")
+    jobs_list = list(_jobs_db.values())
+    if challenge_dataset.is_enabled():
+        from app.challenge.job_store import get_challenge_job
+        c_job = get_challenge_job()
+        if c_job and c_job["job_id"] not in _jobs_db:
+            jobs_list.append(c_job)
+    active_jobs = sum(1 for job in jobs_list if _enum_value(job.get("status")) == "ACTIVE")
     challenge_count = _challenge_candidate_count()
     parsed_candidates = challenge_count or sum(
         1
@@ -265,10 +271,27 @@ def _build_aggregates() -> Dict[str, Any]:
     }
 
 
+_last_refreshed_at: Optional[datetime] = None
+_REFRESH_INTERVAL_SECONDS = 15
+
+
 def _ensure_available() -> Dict[str, Any]:
+    global _last_refreshed_at
     if challenge_dataset.is_enabled():
-        now_str = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        AnalyticsService.refresh_aggregates(now_str, FreshnessStatus.FRESH)
+        now = datetime.now(timezone.utc)
+        should_refresh = False
+        if _last_refreshed_at is None or _analytics_aggregates is None:
+            should_refresh = True
+        else:
+            elapsed = (now - _last_refreshed_at).total_seconds()
+            if elapsed >= _REFRESH_INTERVAL_SECONDS:
+                should_refresh = True
+        
+        if should_refresh:
+            _last_refreshed_at = now
+            now_str = now.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            AnalyticsService.refresh_aggregates(now_str, FreshnessStatus.FRESH)
+
     if not _analytics_last_updated_at or _analytics_aggregates is None:
         raise HireSenseException(
             status_code=503,

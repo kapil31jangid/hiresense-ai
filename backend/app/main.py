@@ -93,6 +93,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     req_id = get_request_id()
+    logging.exception(f"Unhandled exception during request {req_id}: {exc}")
     error_content = format_error_response(
         request_id=req_id,
         code="INTERNAL_SERVER_ERROR",

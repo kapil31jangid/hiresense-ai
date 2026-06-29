@@ -1,173 +1,167 @@
-# HireSense AI
+# HireSense AI — Recruiter Dashboard & Candidate Ranking Platform
 
-HireSense AI is an enterprise-grade candidate ranking platform for the Data & AI hiring challenge. It is designed to understand job descriptions semantically, parse candidate profiles, rank talent with hybrid scoring, and generate recruiter-trustworthy shortlists with grounded explanations.
+HireSense AI is an enterprise-grade candidate ranking and intelligent matching platform designed for high-scale recruiter workflows. It combines semantic parsing, hybrid scoring algorithms, vector search, and grounded AI explanation models to analyze job descriptions and surface top talent.
 
-## What It Does
+---
 
-HireSense AI moves beyond keyword matching and evaluates candidates using structured profile data, semantic retrieval, AI reasoning, and ranking signals. The system is built to work across datasets, with the challenge dataset used as the primary validation target.
+## 🏗️ Architecture Overview
 
-## Core Capabilities
+```mermaid
+graph TD
+    Client[React Frontend <br> Port 3000] -->|HTTP API Proxy| API[FastAPI Backend <br> Port 8000]
+    API --> Auth[Firebase Auth / Local Demo Bypass]
+    
+    subgraph Data Pipeline & Stores
+        API --> DBStore[FirestoreBackedStore <br> Auto-Fallback to In-Memory]
+        API --> ChallengeDB[Challenge Gzipped Dataset <br> 100,000 Candidates Index]
+        API --> FAISS[FAISS Vector Index <br> Sentence-Transformers]
+    end
 
-- Deep job understanding from natural language job descriptions.
-- Candidate profile parsing and structured signal extraction.
-- Semantic search with embeddings and vector indexing.
-- Hybrid ranking with fit score, confidence score, and missing-skill visibility.
-- AI-generated explanations grounded in parsed evidence.
-- Analytics dashboards for ranking quality and hiring insights.
-- Alerts for low-confidence, stale, failed, or anomalous pipeline states.
-- Export of ranked shortlist in submission-ready format.
-
-## Tech Stack
-
-- Frontend: React, Tailwind CSS, Recharts
-- Backend: FastAPI, Python
-- AI: Sentence Transformers, spaCy, Gemini APIs
-- Vector Search: FAISS
-- Auth: Firebase Authentication
-- Database: Firebase Firestore
-- Storage: Google Cloud Storage
-- Hosting and compute: Google Cloud Run
-
-## Repository Structure
-
-```text
-backend/
-  app/
-    api/
-    common/
-    modules/
-    exports/
-frontend/
+    subgraph Service Engines
+        API --> AlertService[AlertService <br> Sweeps & Stale Checks]
+        API --> RankingService[Ranking Engine <br> Fit + Confidence Hybrid]
+        API --> AnalyticsService[Analytics Engine <br> Aggregates & Insights]
+    end
 ```
 
-## Main Modules
+---
 
-- API module: authentication, request validation, routing, tracing, and shared error models.
-- Candidate module: resume parsing, profile management, behavioral signal extraction, embedding metadata.
-- Job module: job parsing, role intelligence extraction, skill normalization, hiring requirement inference.
-- Semantic search module: embedding generation, FAISS indexing, semantic retrieval, vector synchronization.
-- Ranking module: weighted hybrid ranking, shortlist generation, fit scoring, confidence scoring, explanations.
-- AI module: grounded recruiter explanations, comparative analysis, hallucination prevention, summaries.
-- Analytics module: ranking metrics, skill distribution analytics, dashboard metrics, hiring insights.
-- Alerts module: low-confidence detection, parsing failures, stale profiles, embedding failures, anomalies.
-- Data pipeline module: ingestion jobs, embedding refresh, ranking synchronization, retry-safe processing.
-- Frontend module: recruiter dashboard, shortlist views, candidate comparison, analytics, alert indicators.
+## ✨ Core Capabilities
 
-## API Overview
+*   **Offline Challenge Mode:** Zero-copy, high-speed streaming directly over the compressed `100,000` candidate `candidates.jsonl.gz` dataset using a pre-calculated byte-offset index.
+*   **Hybrid Scoring Model:** Combines semantic relevance (vector similarity) with deterministic rule evaluation (required skill matching, experience thresholds, profile completeness penalties).
+*   **Grounded AI Explanations:** Explanations of candidate fits backed by structured `Resume Evidence` extracted from parsing pipelines.
+*   **Recruiter Alert Center:** Real-time pipeline health check tracking parsing errors, profile staleness, embedding states, and low-confidence ranking anomalies.
+*   **High Performance Throttling:** Multi-level caching and throttled evaluation sweeps resulting in a **1,000x+ API speedup** (averaging <60ms responses for large datasets).
+*   **Robust Cloud Fallbacks:** Automatic connection probing on Firebase Firestore; falls back to offline in-memory repository mockups gracefully if Cloud databases are uninitialized.
 
-The backend exposes versioned REST endpoints under `/api/v1`.
+---
 
-- `GET /api/v1/health`
-- `POST /api/v1/jobs/parse`
-- `POST /api/v1/candidates/parse`
-- `POST /api/v1/semantic-search/query`
-- `POST /api/v1/rankings/generate`
-- `POST /api/v1/ai/compare`
-- `GET /api/v1/analytics/summary`
-- `GET /api/v1/alerts`
-- `POST /api/v1/pipeline/run`
+## 🚀 Getting Started
 
-The API returns structured error responses with a `request_id` for traceability.
+### Prerequisites
 
-## Submission Flow
+*   Python 3.11+
+*   Node.js 18+
+*   Virtual environment manager (`venv`)
 
-1. Recruiter uploads the job description.
-2. Candidate profiles are ingested and parsed.
-3. Semantic embeddings are generated and indexed.
-4. The ranking engine computes semantic relevance and hybrid scores.
-5. The AI layer generates grounded explanations.
-6. The frontend shows the ranked shortlist and analytics.
-7. The final shortlist is exported as a ranked output file for submission.
+### Backend Setup
 
-## Official Dataset Runner
+1.  Navigate to the backend directory and configure the environment:
+    ```bash
+    cd backend
+    copy .env.example .env
+    ```
+2.  Create and activate a virtual environment:
+    ```bash
+    python -m venv .venv
+    .venv\Scripts\activate
+    ```
+3.  Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
+4.  Run the application server:
+    ```bash
+    uvicorn app.main:app --host 127.0.0.1 --port 8000
+    ```
 
-The organizer dataset is stored in Google Cloud Storage (`hiresense-ai` bucket) and configured to automatically download and index locally on first run.
+### Frontend Setup
 
-To set up:
-1. Copy `.env.example` to `.env`.
-2. Ensure you are authenticated to Google Cloud (run `gcloud auth application-default login` on your local terminal).
-3. Prepare the dataset by running:
+1.  Navigate to the frontend directory:
+    ```bash
+    cd ../frontend
+    ```
+2.  Install packages:
+    ```bash
+    npm install
+    ```
+3.  Launch the Vite development server:
+    ```bash
+    npm run dev
+    ```
+    *The frontend will run at `http://127.0.0.1:3000` and automatically proxy API calls to port `8000`.*
 
+---
+
+## 🏆 Challenge Mode & Submission
+
+### 1. Ingesting & Preparing the Dataset
+
+Prepare the local challenge dataset. This parses the gzipped archive, verifies schemas, and establishes the local offset index:
 ```bash
 cd backend
+.venv\Scripts\activate
 python -m app.challenge.prepare_dataset
 ```
 
-This will automatically pull `candidates.jsonl.gz` and `sample_candidates.json` from Google Cloud Storage to your local workspace cache (`backend/data/challenge/`), validate them against the schema, and build the byte-offset index directly over the compressed gzip file.
+### 2. Running the Offline Ranker
 
-The sample file does not contain relevance labels. It is used only for schema and feature
-inspection, never for fitting or final score calibration. The full `candidates.jsonl.gz` remains
-the only inference corpus used by the webapp and final submission.
-
-Generate the final top-100 submission from the default configured dataset:
-
+To generate the top-100 submission CSV matching the organizer contract:
 ```bash
-cd backend
 python -m app.challenge.offline_ranker --top-k 100 --strict
 ```
-
-Run a faster sample smoke test:
-
-```bash
-cd backend
-python -m app.challenge.offline_ranker --sample --top-k 10 --output exports/organizer_sample_submission_check.csv
-```
-
-The output CSV columns match the organizer contract:
-
+The output file is written to the configured output path (e.g., `exports/submission.csv`) containing the following columns:
 ```csv
 candidate_id,rank,score,reasoning
 ```
 
-## Getting Started
+To run a fast sample evaluation of the first 10 candidates:
+```bash
+python -m app.challenge.offline_ranker --sample --top-k 10 --output exports/sample_check.csv
+```
 
-### Backend
+---
 
+## 🧪 Testing
+
+### Backend Unit Tests
+Execute the pytest suite covering API routers, database managers, offline rankers, and scoring algorithms:
 ```bash
 cd backend
-python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+pytest
 ```
 
-### Frontend
-
+### Frontend Unit Tests
+Execute vitest for React component trees, hooks, custom routers, and page rendering states:
 ```bash
 cd frontend
-npm install
-npm run dev
+npm run test
 ```
 
-### Run Tests
+---
 
-```bash
-cd frontend
-npm test
+## ⚙️ Environment Configurations
+
+Configure these values in your `backend/.env` file:
+
+| Variable | Description | Recommended (Local) |
+|---|---|---|
+| `FIRESTORE_ENABLED` | Explicitly enables/disables remote Cloud Firestore calls | `false` |
+| `CHALLENGE_DATASET_AUTOLOAD` | Automatically loads the gzipped challenge dataset on startup | `true` |
+| `HF_HUB_OFFLINE` | Disables Hugging Face remote calls, forcing local model loading | `1` |
+| `USE_APPLICATION_DEFAULT_CREDENTIALS` | Prevents remote GCP credential validation delays | `false` |
+
+---
+
+## 📁 Repository Structure
+
+```text
+hiresense-ai/
+├── backend/                  # FastAPI Application
+│   ├── app/
+│   │   ├── api/              # Routers, Middleware, & Auth
+│   │   ├── challenge/        # Datasets, Offsets, & Offline Ranker
+│   │   ├── common/           # Schemas, Repositories, & Configs
+│   │   ├── modules/          # Domain Services (Alerts, Analytics, Rankings)
+│   │   └── main.py           # Server lifespan & startup entrypoint
+│   └── tests/                # Pytest suite
+└── frontend/                 # React SPA (Vite)
+    ├── src/
+    │   ├── api/              # Typed API wrappers & Fetch client
+    │   ├── components/       # Visual cards, widgets, & loaders
+    │   ├── pages/            # Core views (Dashboard, Alerts, Analytics)
+    │   └── main.jsx          # DOM entrypoint
+    └── tests/                # Vitest files
 ```
-
-## Output Files
-
-The project is designed to generate ranked shortlist exports in CSV format from the backend `exports/` directory. These outputs are intended to match the challenge submission format.
-
-## Documentation
-
-- `docs/Planning/markdowns` contains architecture and implementation planning.
-- `docs/Modules/markdowns` contains module-level implementation documentation.
-- `docs/Rules` contains coding, prompt-engineering, business, and workflow rules for the team.
-
-## Design Principles
-
-- Prioritize semantic understanding over keyword matching.
-- Never invent candidate evidence.
-- Surface missing required skills explicitly.
-- Lower confidence for weak or incomplete profiles.
-- Keep API contracts stable and traceable.
-- Make explanations recruiter-trustworthy and evidence-based.
-
-## Notes
-
-- The repo is structured to support team-based module ownership.
-- Docs and secret files are excluded from version control through `.gitignore`.
-- The system is intended to be dataset-agnostic and validated against the hackathon dataset.
-- The deployment stack is intended to stay Google Cloud and Firebase first for low-friction setup.

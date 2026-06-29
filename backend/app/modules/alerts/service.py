@@ -16,6 +16,10 @@ _alert_events_db: Dict[str, Dict[str, Any]] = FirestoreBackedStore("alert_events
 _alert_counter = 0
 _event_counter = 0
 
+# Throttle: run evaluation sweep at most once per 30 seconds
+_SWEEP_INTERVAL_SECONDS = 30
+_last_sweep_at: Optional[datetime] = None
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -64,7 +68,10 @@ class AlertService:
                 title=alert["title"],
                 message=alert["message"],
                 created_at=alert["created_at"],
-                job_id=alert.get("job_id")
+                job_id=alert.get("job_id"),
+                candidate_id=alert.get("candidate_id"),
+                acknowledged_at=alert.get("acknowledged_at"),
+                resolved_at=alert.get("resolved_at"),
             ))
         return items
 
@@ -216,7 +223,10 @@ class AlertService:
             title=alert["title"],
             message=alert["message"],
             created_at=alert["created_at"],
-            job_id=alert.get("job_id")
+            job_id=alert.get("job_id"),
+            candidate_id=alert.get("candidate_id"),
+            acknowledged_at=alert.get("acknowledged_at"),
+            resolved_at=alert.get("resolved_at"),
         )
 
     @staticmethod
@@ -254,20 +264,64 @@ class AlertService:
             title=alert["title"],
             message=alert["message"],
             created_at=alert["created_at"],
-            job_id=alert.get("job_id")
+            job_id=alert.get("job_id"),
+            candidate_id=alert.get("candidate_id"),
+            acknowledged_at=alert.get("acknowledged_at"),
+            resolved_at=alert.get("resolved_at"),
         )
 
     @staticmethod
-    def run_evaluation_sweep():
+    def run_evaluation_sweep(force: bool = False):
+        """Run alert evaluation sweep. Throttled to at most once per 30 seconds."""
+        global _last_sweep_at
+        now_utc = datetime.now(timezone.utc)
+        if not force and _last_sweep_at is not None:
+            elapsed = (now_utc - _last_sweep_at).total_seconds()
+            if elapsed < _SWEEP_INTERVAL_SECONDS:
+                return  # Throttled — skip this sweep
+        _last_sweep_at = now_utc
+
         from app.modules.candidate.service import _candidates_db
         from app.modules.job.service import _jobs_db
         from app.modules.semantic_search.service import _embeddings_db
         from app.modules.ranking.service import _rankings_db
+        from app.challenge import dataset_store as challenge_dataset
+        from app.challenge.job_store import get_challenge_job
         
         now = datetime.now(timezone.utc)
         
+        # Build candidates to check: demo candidates + challenge candidates that are in rankings
+        candidates_to_check = dict(_candidates_db)
+        if challenge_dataset.is_enabled():
+            # Only look up ranked challenge candidates (not all 100K) — each gets a stub
+            # from the in-memory summary index; use has_candidate() to avoid file I/O.
+            for r in _rankings_db.values():
+                for c in r.get("candidates", []):
+                    c_id = c["candidate_id"]
+                    if c_id not in candidates_to_check and challenge_dataset.has_candidate(c_id):
+                        # Use a lightweight stub from ranking data to avoid file I/O
+                        candidates_to_check[c_id] = {
+                            "candidate_id": c_id,
+                            "source_type": "CHALLENGE_DATASET",
+                            "source": "CHALLENGE_DATASET",
+                            "parsing_status": "COMPLETED",
+                            "updated_at": c.get("updated_at", "2026-06-20T00:00:00Z"),
+                            "created_at": c.get("created_at", "2026-06-20T00:00:00Z"),
+                        }
+
+        # Build jobs to check: demo jobs + challenge job if referenced in rankings
+        jobs_to_check = dict(_jobs_db)
+        if challenge_dataset.is_enabled():
+            for r in _rankings_db.values():
+                j_id = r.get("job_id")
+                if j_id and j_id not in jobs_to_check:
+                    if j_id == "JOB_CHALLENGE_001":
+                        challenge_job = get_challenge_job()
+                        if challenge_job:
+                            jobs_to_check[j_id] = challenge_job
+        
         # 1. Candidate Stale Profiles
-        for c_id, cand in _candidates_db.items():
+        for c_id, cand in candidates_to_check.items():
             updated_at_str = cand.get("updated_at") or cand.get("created_at")
             if updated_at_str:
                 try:
@@ -289,7 +343,7 @@ class AlertService:
                     pass
                     
         # 2. Job Stale Profiles
-        for j_id, job in _jobs_db.items():
+        for j_id, job in jobs_to_check.items():
             updated_at_str = job.get("updated_at") or job.get("created_at")
             if updated_at_str:
                 try:
@@ -311,7 +365,7 @@ class AlertService:
                     pass
                     
         # 3. Parsing Failures
-        for c_id, cand in _candidates_db.items():
+        for c_id, cand in candidates_to_check.items():
             if cand.get("parsing_status") == "FAILED":
                 AlertService.trigger_alert(
                     alert_type="RESUME_PARSE_FAILED",
@@ -325,7 +379,7 @@ class AlertService:
             else:
                 AlertService.clear_alert(f"RESUME_PARSE_FAILED:{c_id}", "Candidate reprocess succeeded.")
                 
-        for j_id, job in _jobs_db.items():
+        for j_id, job in jobs_to_check.items():
             if job.get("parsing_status") == "FAILED":
                 AlertService.trigger_alert(
                     alert_type="JOB_PARSE_FAILED",
@@ -339,8 +393,14 @@ class AlertService:
             else:
                 AlertService.clear_alert(f"JOB_PARSE_FAILED:{j_id}", "Job reprocess succeeded.")
                 
-        # 4. Embedding Failures
-        for c_id in _candidates_db.keys():
+        # 4. Embedding Failures — only check demo/uploaded entities (not challenge dataset)
+        # Challenge dataset candidates/jobs use FAISS-based vector search and don't
+        # have entries in _embeddings_db, so we must skip them to avoid false positives.
+        for c_id, cand in candidates_to_check.items():
+            # Skip challenge dataset candidates — they use offline FAISS index, not _embeddings_db
+            if cand.get("source_type") == "CHALLENGE_DATASET" or cand.get("source") == "CHALLENGE_DATASET":
+                AlertService.clear_alert(f"EMBEDDING_FAILED:CANDIDATE:{c_id}", "Challenge dataset candidate uses offline index.")
+                continue
             emb_id = f"emb_cand_{c_id}"
             emb = _embeddings_db.get(emb_id)
             if not emb or emb.get("status") == "FAILED":
@@ -356,7 +416,18 @@ class AlertService:
             else:
                 AlertService.clear_alert(f"EMBEDDING_FAILED:CANDIDATE:{c_id}", "Embedding refresh completed successfully.")
                 
-        for j_id in _jobs_db.keys():
+        for j_id, job in jobs_to_check.items():
+            # Skip challenge dataset jobs — they use offline FAISS index, not _embeddings_db
+            emb_meta_source = (job.get("embedding_metadata") or {}).get("source", "")
+            is_challenge_job = (
+                job.get("source_type") == "CHALLENGE_DATASET"
+                or job.get("source") == "CHALLENGE_DATASET"
+                or emb_meta_source == "CHALLENGE_DATASET"
+                or j_id.startswith("JOB_CHALLENGE_")
+            )
+            if is_challenge_job:
+                AlertService.clear_alert(f"EMBEDDING_FAILED:JOB:{j_id}", "Challenge dataset job uses offline index.")
+                continue
             emb_id = f"emb_job_{j_id}"
             emb = _embeddings_db.get(emb_id)
             if not emb or emb.get("status") == "FAILED":
@@ -379,7 +450,7 @@ class AlertService:
             job_id = ranking.get("job_id")
             
             if any_low_conf:
-                job_title = _jobs_db.get(job_id, {}).get("title", "Job") if job_id else "Job"
+                job_title = jobs_to_check.get(job_id, {}).get("title", "Job") if job_id else "Job"
                 AlertService.trigger_alert(
                     alert_type="LOW_CONFIDENCE_RANKING",
                     condition_key=f"LOW_CONFIDENCE_RANKING:{r_id}",
