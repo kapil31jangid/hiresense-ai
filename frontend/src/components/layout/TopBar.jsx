@@ -9,7 +9,7 @@ export default function TopBar({ title }) {
   }, [])
 
   return (
-    <header className="h-16 flex items-center justify-between px-6 bg-slate-900 border-b border-slate-800 shrink-0">
+    <header className="h-14 flex items-center justify-between px-5 bg-slate-900 border-b border-slate-800 shrink-0">
       <h1 className="text-base font-semibold text-slate-100">{title}</h1>
       {user && (
         <div className="flex items-center gap-3">
