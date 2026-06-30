@@ -76,7 +76,9 @@ def seed_demo_state(monkeypatch):
     runtime = getattr(app.state, "runtime", None)
     if runtime is not None:
         runtime.firebase_ready = True
+        runtime.firebase_auth_ready = True
         runtime.firebase_status = "ready"
+        runtime.firebase_auth_status = "ready"
         runtime.firestore_ready = True
         runtime.firestore_status = "ready"
         runtime.gcs_ready = True
@@ -91,6 +93,7 @@ def seed_demo_state(monkeypatch):
             google_cloud_project="hiresense-ai",
         ),
         firebase_ready=True,
+        firebase_auth_ready=True,
         firestore_ready=True,
         gcs_ready=True,
         gemini_ready=True,

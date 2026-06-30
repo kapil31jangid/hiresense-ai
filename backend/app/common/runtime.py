@@ -109,12 +109,14 @@ class AppSettings:
 class RuntimeState:
     settings: AppSettings
     firebase_ready: bool = False
+    firebase_auth_ready: bool = False
     firestore_ready: bool = False
     gcs_ready: bool = False
     gemini_ready: bool = False
     faiss_ready: bool = False
     database_mode: str = "not_configured"
     firebase_status: str = "not_configured"
+    firebase_auth_status: str = "not_configured"
     firestore_status: str = "not_configured"
     gcs_status: str = "not_configured"
     gemini_status: str = "not_configured"
@@ -125,10 +127,10 @@ class RuntimeState:
 
     def dependency_statuses(self) -> Dict[str, str]:
         return {
-            "firebase_auth": self.firebase_status,
+            "firebase_auth": self.firebase_auth_status,
             "firestore": self.firestore_status,
             "postgresql": self.firestore_status,
-        "database": self.database_mode,
+            "database": self.database_mode,
             "gcs": self.gcs_status,
             "object_storage": self.gcs_status,
             "gemini": self.gemini_status,
@@ -156,35 +158,64 @@ def _load_service_account_credentials(raw_credentials: Optional[Dict[str, Any]])
         return None
 
 
-def _try_initialize_firebase(settings: AppSettings) -> Tuple[bool, str, Any, Any]:
+def _try_initialize_firebase_app(settings: AppSettings) -> Tuple[bool, str, Any]:
+    """Initialize the firebase-admin SDK app for auth token verification.
+
+    This is independent of Firestore — a service-account credential OR
+    Application Default Credentials (ADC) with a project ID is sufficient.
+    On GCP Cloud Run, ADC works automatically without any extra configuration.
+    Returns (app_ready, status, firebase_app).
+    """
     try:
         import firebase_admin
-        from firebase_admin import credentials, firestore
+        from firebase_admin import credentials as fb_creds
     except Exception:
-        return False, "missing_dependency", None, None
+        return False, "missing_dependency", None
 
-    if str(settings.firestore_enabled).lower() != "true":
-        return False, "not_configured", None, None
+    # Reuse an already-initialized app (e.g., called twice during startup)
+    if firebase_admin._apps:
+        return True, "ready", firebase_admin.get_app()
 
     creds_info = settings.firebase_credentials_dict()
-    firebase_app = None
-    firestore_client = None
+    use_adc = str(settings.use_application_default_credentials).lower() == "true"
+    project_id = settings.firebase_project_id or settings.google_cloud_project
 
     try:
-        use_adc = str(settings.use_application_default_credentials).lower() == "true"
-        if firebase_admin._apps:
-            firebase_app = firebase_admin.get_app()
-        elif creds_info:
-            firebase_app = firebase_admin.initialize_app(credentials.Certificate(creds_info))
-        elif settings.firebase_project_id and use_adc:
-            firebase_app = firebase_admin.initialize_app()
+        if creds_info:
+            app = firebase_admin.initialize_app(fb_creds.Certificate(creds_info))
+            return True, "ready", app
+        elif use_adc and project_id:
+            # Works automatically on GCP Cloud Run via Application Default Credentials
+            app = firebase_admin.initialize_app(options={"projectId": project_id})
+            return True, "ready", app
         else:
-            return False, "not_configured", None, None
+            return False, "not_configured", None
+    except Exception:
+        return False, "degraded", None
 
+
+def _try_initialize_firebase(settings: AppSettings) -> Tuple[bool, str, Any, Any]:
+    """Initialize firebase-admin app + Firestore client.
+
+    Returns (firestore_ready, status, firebase_app, firestore_client).
+    firebase_app may be set even when Firestore is disabled.
+    """
+    # Ensure the firebase-admin app is initialized first
+    app_ready, app_status, firebase_app = _try_initialize_firebase_app(settings)
+
+    if not app_ready or firebase_app is None:
+        return False, app_status, None, None
+
+    # Firestore is optional — only initialize if explicitly enabled
+    if str(settings.firestore_enabled).lower() != "true":
+        return False, "not_configured", firebase_app, None
+
+    try:
+        from firebase_admin import firestore
         firestore_client = firestore.client(app=firebase_app)
         return True, "ready", firebase_app, firestore_client
     except Exception:
-        return False, "degraded", firebase_app, firestore_client
+        return False, "degraded", firebase_app, None
 
 
 def _try_initialize_gcs(settings: AppSettings) -> Tuple[bool, str, Any]:
@@ -224,6 +255,9 @@ def load_settings() -> AppSettings:
 @lru_cache(maxsize=1)
 def build_runtime_state() -> RuntimeState:
     settings = load_settings()
+    # Initialize firebase-admin app first (needed for auth token verification)
+    firebase_auth_ready, firebase_auth_status, _ = _try_initialize_firebase_app(settings)
+    # Then initialize Firestore on top (optional, gated by FIRESTORE_ENABLED)
     firebase_ready, firebase_status, firebase_app, firestore_client = _try_initialize_firebase(settings)
     gcs_ready, gcs_status, gcs_client = _try_initialize_gcs(settings)
     gemini_ready, gemini_status = _probe_gemini(settings)
@@ -231,12 +265,14 @@ def build_runtime_state() -> RuntimeState:
     runtime = RuntimeState(
         settings=settings,
         firebase_ready=firebase_ready,
+        firebase_auth_ready=firebase_auth_ready,
         firestore_ready=bool(firestore_client),
         gcs_ready=gcs_ready,
         gemini_ready=gemini_ready,
         faiss_ready=True,
         database_mode="firestore" if firestore_client else "not_configured",
         firebase_status=firebase_status,
+        firebase_auth_status=firebase_auth_status,
         firestore_status="ready" if firestore_client else firebase_status,
         gcs_status=gcs_status,
         gemini_status=gemini_status,

@@ -52,11 +52,11 @@ def get_current_user(request: Request) -> UserContext:
         if token in demo_tokens:
             return demo_tokens[token]
 
-    if not runtime.firebase_ready:
+    if not runtime.firebase_auth_ready:
         raise HireSenseException(
             status_code=503,
             code="FIREBASE_NOT_READY",
-            message="Firebase authentication is not configured."
+            message="Firebase authentication is not configured.",
         )
 
     try:
