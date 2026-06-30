@@ -14,6 +14,7 @@ from app.modules.candidate.service import _candidates_db
 from app.modules.ranking.service import _rankings_db
 from app.modules.analytics.service import AnalyticsService
 from app.common.repositories import FirestoreBackedStore, FirestoreBackedListStore
+from app.challenge.job_store import CHALLENGE_JOB_ID
 
 _pipeline_runs_db: Dict[str, Dict[str, Any]] = FirestoreBackedStore("pipeline_runs", {})
 _pipeline_failures_db: Dict[str, Dict[str, Any]] = FirestoreBackedStore("pipeline_failures", {})
@@ -153,8 +154,8 @@ class PipelineService:
     def _create_run(data: PipelineRunRequest, run_type_prefix: str) -> str:
         global _pipeline_counter
         
-        # Validate job_id if provided
-        if data.job_id and data.job_id not in _jobs_db:
+        # Validate job_id if provided — also accept the challenge job ID
+        if data.job_id and data.job_id != CHALLENGE_JOB_ID and data.job_id not in _jobs_db:
             raise HireSenseException(
                 status_code=404,
                 code="JOB_NOT_FOUND",
