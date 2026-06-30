@@ -45,8 +45,10 @@ def seed_demo_data() -> None:
     from app.modules.alerts import service as alerts_service
     from app.common.schemas import JobStatus, RankingStatus, AlertStatus, AlertSeverity
 
-    # Skip seeding if data already exists
-    if len(job_service._jobs_db) > 0 or len(candidate_service._candidates_db) > 0:
+    # Skip seeding if data already exists — check _memory directly to avoid
+    # triggering FirestoreBackedStore._sync_from_remote() which can block on
+    # network timeouts when Firestore is not configured.
+    if job_service._jobs_db._memory or candidate_service._candidates_db._memory:
         return
 
     now = _now()
@@ -370,61 +372,73 @@ def seed_demo_data() -> None:
         alerts_service._alert_counter = 1
         alerts_service._event_counter = 1
 
-    from app.challenge import dataset_store as challenge_dataset
-    if challenge_dataset.is_enabled():
-        from app.modules.analytics.service import _official_submission_rows
-        rows = _official_submission_rows()
-        if rows:
-            ranking_id = "rank_challenge_001"
-            candidates_scored = []
-            
-            from app.challenge.job_store import get_challenge_job
-            c_job = get_challenge_job()
-            required_skills = [s.lower() for s in c_job.get("required_skills", [])] if c_job else []
-            
-            for row in rows:
-                c_id = row["candidate_id"]
-                cand = challenge_dataset.get_candidate(c_id)
-                confidence = cand.get("confidence_score", 0.85) if cand else 0.85
-                
-                # Check for missing required skills
-                cand_skills = cand.get("normalized_skills", []) if cand else []
-                missing_required = [s for s in required_skills if s not in cand_skills]
-                
-                # Embedding status penalty
-                from app.modules.semantic_search.service import _embeddings_db
-                emb_record = _embeddings_db.get(f"emb_cand_{c_id}")
-                if not emb_record or emb_record.get("status") != "READY":
-                    confidence -= 0.15
-                    
-                confidence_score = round(max(0.1, min(0.95, confidence)), 2)
-                
-                candidates_scored.append({
-                    "candidate_id": c_id,
-                    "fit_score": float(row["score"]),
-                    "confidence_score": confidence_score,
-                    "missing_required_skills": missing_required,
-                    "top_match_reasons": [row["reasoning"]],
-                    "semantic_score": float(row["score"]),
-                    "rank_position": int(row["rank"])
-                })
-                
-            ranking_record = {
-                "ranking_id": ranking_id,
-                "job_id": "JOB_CHALLENGE_001",
-                "status": RankingStatus.COMPLETED,
-                "candidate_count": len(candidates_scored),
-                "created_at": "2026-06-20T00:00:00Z",
-                "updated_at": "2026-06-20T00:00:00Z",
-                "candidates": candidates_scored
-            }
-            ranking_service._rankings_db[ranking_id] = ranking_record
+    # Seed challenge submission ranking in background — get_candidate() seeks through
+    # a 100k gzip file per row and must NOT block the startup event loop.
+    import threading
 
-    # Refresh embeddings and rebuild indexes for seeded data so they are ready on startup
-    from app.modules.semantic_search.service import SemanticSearchService
-    try:
-        SemanticSearchService.refresh_embeddings()
-        SemanticSearchService.rebuild_indexes("ALL")
-    except Exception as e:
+    def _bg_challenge_seed_and_embed():
         import logging
-        logging.getLogger("hiresense_api").error(f"Failed to refresh embeddings on startup seeding: {e}")
+        _log = logging.getLogger("hiresense_api")
+
+        # 1. Seed challenge submission CSV ranking (if available)
+        try:
+            from app.challenge import dataset_store as challenge_dataset
+            if challenge_dataset.is_enabled():
+                from app.modules.analytics.service import _official_submission_rows
+                rows = _official_submission_rows()
+                if rows:
+                    ranking_id = "rank_challenge_001"
+                    candidates_scored = []
+
+                    from app.challenge.job_store import get_challenge_job
+                    c_job = get_challenge_job()
+                    required_skills = [s.lower() for s in c_job.get("required_skills", [])] if c_job else []
+
+                    for row in rows:
+                        c_id = row["candidate_id"]
+                        cand = challenge_dataset.get_candidate(c_id)
+                        confidence = cand.get("confidence_score", 0.85) if cand else 0.85
+
+                        cand_skills = cand.get("normalized_skills", []) if cand else []
+                        missing_required = [s for s in required_skills if s not in cand_skills]
+
+                        from app.modules.semantic_search.service import _embeddings_db
+                        emb_record = _embeddings_db.get(f"emb_cand_{c_id}")
+                        if not emb_record or emb_record.get("status") != "READY":
+                            confidence -= 0.15
+
+                        confidence_score = round(max(0.1, min(0.95, confidence)), 2)
+                        candidates_scored.append({
+                            "candidate_id": c_id,
+                            "fit_score": float(row["score"]),
+                            "confidence_score": confidence_score,
+                            "missing_required_skills": missing_required,
+                            "top_match_reasons": [row["reasoning"]],
+                            "semantic_score": float(row["score"]),
+                            "rank_position": int(row["rank"]),
+                        })
+
+                    ranking_record = {
+                        "ranking_id": ranking_id,
+                        "job_id": "JOB_CHALLENGE_001",
+                        "status": RankingStatus.COMPLETED,
+                        "candidate_count": len(candidates_scored),
+                        "created_at": "2026-06-20T00:00:00Z",
+                        "updated_at": "2026-06-20T00:00:00Z",
+                        "candidates": candidates_scored,
+                    }
+                    ranking_service._rankings_db[ranking_id] = ranking_record
+        except Exception as e:
+            _log.error(f"Background challenge ranking seed failed: {e}")
+
+        # 2. Refresh embeddings and rebuild FAISS indexes
+        try:
+            from app.modules.semantic_search.service import SemanticSearchService
+            SemanticSearchService.refresh_embeddings()
+            SemanticSearchService.rebuild_indexes("ALL")
+        except Exception as e:
+            _log.error(f"Background embedding refresh failed: {e}")
+
+    t = threading.Thread(target=_bg_challenge_seed_and_embed, daemon=True, name="startup-bg")
+    t.start()
+

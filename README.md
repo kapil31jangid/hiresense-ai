@@ -70,7 +70,7 @@ graph TD
 
 1.  Navigate to the frontend directory:
     ```bash
-    cd ../frontend
+    cd frontend
     ```
 2.  Install packages:
     ```bash

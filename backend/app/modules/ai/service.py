@@ -16,6 +16,8 @@ from app.common.runtime import build_runtime_state
 from app.modules.ranking.service import _rankings_db
 from app.modules.job.service import _jobs_db
 from app.modules.candidate.service import _candidates_db
+from app.challenge import dataset_store as challenge_dataset
+from app.challenge.job_store import CHALLENGE_JOB_ID, get_challenge_job
 
 _explanations_db: Dict[str, Dict[str, AIExplanationResponse]] = {}
 
@@ -169,15 +171,23 @@ class AIService:
                 message=f"Candidate with ID {data.candidate_id} was not found in ranking {data.ranking_id}."
             )
 
-        if data.candidate_id not in _candidates_db:
+        # Resolve candidate — prefer _candidates_db, fall back to challenge dataset
+        cand = _candidates_db.get(data.candidate_id)
+        if cand is None and challenge_dataset.is_enabled():
+            cand = challenge_dataset.get_candidate(data.candidate_id)
+        if cand is None:
             raise HireSenseException(
                 status_code=422,
                 code="AI_EVIDENCE_INCOMPLETE",
                 message=f"Candidate profile incomplete or not found: {data.candidate_id}"
             )
 
-        job = _jobs_db[ranking["job_id"]]
-        cand = _candidates_db[data.candidate_id]
+        # Resolve job — support challenge job not stored in _jobs_db
+        job_id = ranking["job_id"]
+        if job_id == CHALLENGE_JOB_ID:
+            job = get_challenge_job() or {}
+        else:
+            job = _jobs_db.get(job_id, {})
         required_skills = job.get("required_skills", [])
         cand_skills = cand.get("normalized_skills", [])
 
@@ -261,7 +271,12 @@ class AIService:
             )
 
         ranking = _rankings_db[data.ranking_id]
-        job = _jobs_db[ranking["job_id"]]
+        # Resolve job — support challenge job not stored in _jobs_db
+        job_id = ranking["job_id"]
+        if job_id == CHALLENGE_JOB_ID:
+            job = get_challenge_job() or {}
+        else:
+            job = _jobs_db.get(job_id, {})
         required_skills = job.get("required_skills", [])
 
         candidates_info = []
@@ -275,14 +290,17 @@ class AIService:
                     code="CANDIDATE_NOT_FOUND",
                     message=f"Candidate with ID {cand_id} was not found in ranking {data.ranking_id}."
                 )
-            if cand_id not in _candidates_db:
+            # Resolve candidate — prefer _candidates_db, fall back to challenge dataset
+            cand = _candidates_db.get(cand_id)
+            if cand is None and challenge_dataset.is_enabled():
+                cand = challenge_dataset.get_candidate(cand_id)
+            if cand is None:
                 raise HireSenseException(
                     status_code=422,
                     code="AI_EVIDENCE_INCOMPLETE",
                     message=f"Candidate profile incomplete or not found: {cand_id}"
                 )
 
-            cand = _candidates_db[cand_id]
             cand_skills = cand.get("normalized_skills", [])
             skills_used = [s for s in required_skills if s in cand_skills]
             missing_skills = [s for s in required_skills if s not in cand_skills]
@@ -361,7 +379,10 @@ class AIService:
 
         top_candidate = candidates[0]
         top_cand_id = top_candidate["candidate_id"]
-        top_cand_name = _candidates_db.get(top_cand_id, {}).get("full_name", top_cand_id)
+        _top_cand = _candidates_db.get(top_cand_id)
+        if _top_cand is None and challenge_dataset.is_enabled():
+            _top_cand = challenge_dataset.get_candidate(top_cand_id) or {}
+        top_cand_name = (_top_cand or {}).get("full_name", top_cand_id)
 
         all_missing_skills = set()
         low_confidence_count = 0

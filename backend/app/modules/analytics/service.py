@@ -24,7 +24,7 @@ from app.modules.ranking.service import _rankings_db
 from app.challenge import dataset_store as challenge_dataset
 from app.common.runtime import load_settings
 
-LOW_CONFIDENCE_THRESHOLD = 0.88
+LOW_CONFIDENCE_THRESHOLD = 0.65
 SHORTLIST_FIT_THRESHOLD = 0.80
 
 _analytics_last_updated_at: Optional[str] = "2026-05-27T15:30:00Z"

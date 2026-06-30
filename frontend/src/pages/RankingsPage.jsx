@@ -21,10 +21,7 @@ export default function RankingsPage() {
   const [rankings, setRankings] = useState([])
   const [rankingsLoading, setRankingsLoading] = useState(false)
   const [rankingsError, setRankingsError] = useState(null)
-  const [officialExportError, setOfficialExportError] = useState(null)
-
   const { mutate: createRanking, loading: creating } = useMutation(rankingsApi.create)
-  const { mutate: exportOfficial, loading: exportingOfficial } = useMutation(rankingsApi.exportOfficialChallengeCsv)
 
   async function handleCreate(e) {
     e.preventDefault()
@@ -42,15 +39,6 @@ export default function RankingsPage() {
     }
   }
 
-  async function handleOfficialExport() {
-    setOfficialExportError(null)
-    try {
-      const res = await exportOfficial()
-      window.location.href = res.download_url
-    } catch (err) {
-      setOfficialExportError(err)
-    }
-  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -68,25 +56,6 @@ export default function RankingsPage() {
         </button>
       </div>
 
-      <div className="card border-brand-900/50 bg-brand-950/10">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h3 className="section-title">Official Challenge Submission</h3>
-            <p className="text-sm text-slate-400 mt-1">
-              Generate the top-100 CSV from the full configured candidates.jsonl dataset.
-            </p>
-          </div>
-          <button
-            id="official-challenge-export-btn"
-            onClick={handleOfficialExport}
-            disabled={exportingOfficial}
-            className="btn-primary"
-          >
-            {exportingOfficial ? 'Generating CSV…' : 'Generate Official CSV'}
-          </button>
-        </div>
-        {officialExportError && <div className="mt-4"><ErrorDisplay error={officialExportError} /></div>}
-      </div>
 
       {showForm && (
         <div className="card animate-fade-in">
@@ -118,9 +87,7 @@ export default function RankingsPage() {
                 <option value="HYBRID_WEIGHTED_V1">HYBRID_WEIGHTED_V1</option>
               </select>
             </div>
-            <p className="text-xs text-slate-500">
-              Demo ranking uses the currently visible candidates. Use Official Challenge Submission above for the full dataset CSV.
-            </p>
+
             {createError && <ErrorDisplay error={createError} />}
             <div className="flex gap-3">
               <button
