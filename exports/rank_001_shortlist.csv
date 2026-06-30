@@ -1,6 +1,0 @@
-candidate_id,rank,score,reasoning
-CAND_0000003,1,0.4600,"Direct evidence of python, fastapi experience in resume. Moderate semantic match for backend platform work. Missing required skills: react, next.js."
-CAND_0000002,2,0.3300,"Direct evidence of python, fastapi experience in resume. Moderate semantic match for backend platform work. Missing required skills: react, next.js."
-CAND_0000001,3,0.2800,"Direct evidence of python, fastapi experience in resume. Moderate semantic match for backend platform work. Missing required skills: react, next.js."
-CAND_0000004,4,0.1300,"Direct evidence of python experience in resume. Moderate semantic match for backend platform work. Missing required skills: react, next.js, fastapi."
-CAND_0000005,5,0.1100,"Direct evidence of python experience in resume. Moderate semantic match for backend platform work. Missing required skills: react, next.js, fastapi."
