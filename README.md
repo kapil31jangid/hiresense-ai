@@ -86,8 +86,16 @@ graph TD
 
 ## 🏆 Challenge Mode & Submission
 
-### 1. Ingesting & Preparing the Dataset
+### 1. Uploading the Dataset to Supabase
 
+If you need to publish the raw candidate dataset to your Supabase Storage bucket for others to download:
+```bash
+cd backend
+.venv\Scripts\activate
+python -m app.challenge.upload_dataset
+```
+
+### 2. Ingesting & Preparing the Dataset locally
 Prepare the local challenge dataset. This parses the gzipped archive, verifies schemas, and establishes the local offset index:
 ```bash
 cd backend
