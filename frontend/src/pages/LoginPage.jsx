@@ -1,11 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  updateProfile,
-} from 'firebase/auth'
-import { auth, isFirebaseConfigured } from '../firebase.js'
+import { supabase, isSupabaseConfigured } from '../supabase.js'
 import { authApi } from '../api/auth.js'
 import ErrorDisplay from '../components/shared/ErrorDisplay.jsx'
 
@@ -89,16 +84,20 @@ export default function LoginPage() {
       }
 
       // 2. Firebase Authentication (production / GCP)
-      if (!isFirebaseConfigured) {
+      if (!isSupabaseConfigured) {
         throw {
           error: {
             code: 'AUTH_ERROR',
-            message: 'Invalid credentials. Use a demo account or configure Firebase.',
+            message: 'Invalid credentials. Use a demo account or configure Supabase.',
           },
         }
       }
-      const credential = await signInWithEmailAndPassword(auth, email, password)
-      const idToken = await credential.user.getIdToken()
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      if (signInError) throw signInError
+      const idToken = data.session.access_token
       localStorage.setItem('hs_token', idToken)
       await authApi.me()
       navigate('/dashboard')
@@ -118,13 +117,21 @@ export default function LoginPage() {
     setSuccessMessage(null)
 
     try {
-      if (isFirebaseConfigured && !demoAuthEnabled) {
-        // Production/GCP: real Firebase account creation
-        const credential = await createUserWithEmailAndPassword(auth, email, password)
-        if (credential.user && fullName) {
-          await updateProfile(credential.user, { displayName: fullName })
-        }
-        const idToken = await credential.user.getIdToken()
+      if (isSupabaseConfigured && !demoAuthEnabled) {
+        // Production: real Supabase account creation
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+              role: role,
+            }
+          }
+        })
+        if (signUpError) throw signUpError
+        const idToken = data.session?.access_token
+        if (!idToken) throw new Error('Email confirmation might be required, or login failed.')
         localStorage.setItem('hs_token', idToken)
         await authApi.me()
         navigate('/dashboard')
@@ -340,7 +347,7 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-4 text-center text-xs text-slate-600">
-          Firebase Authentication in cloud mode · demo tokens in local dev
+          Supabase Authentication in cloud mode · demo tokens in local dev
         </p>
       </div>
     </div>

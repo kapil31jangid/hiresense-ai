@@ -53,13 +53,9 @@ class AppSettings:
     gemini_model_name: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"))
     embedding_model_name: str = field(default_factory=lambda: os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"))
     ai_provider_mode: str = field(default_factory=lambda: os.getenv("AI_PROVIDER_MODE", "gemini"))
-    firebase_project_id: str = field(default_factory=lambda: os.getenv("FIREBASE_PROJECT_ID", ""))
-    firebase_service_account_json: str = field(default_factory=lambda: os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", ""))
-    firebase_api_key: str = field(default_factory=lambda: os.getenv("FIREBASE_API_KEY", ""))
-    firebase_app_id: str = field(default_factory=lambda: os.getenv("FIREBASE_APP_ID", ""))
-    firebase_auth_domain: str = field(default_factory=lambda: os.getenv("FIREBASE_AUTH_DOMAIN", ""))
-    firebase_storage_bucket: str = field(default_factory=lambda: os.getenv("FIREBASE_STORAGE_BUCKET", ""))
-    firebase_messaging_sender_id: str = field(default_factory=lambda: os.getenv("FIREBASE_MESSAGING_SENDER_ID", ""))
+    supabase_url: str = field(default_factory=lambda: os.getenv("SUPABASE_URL", ""))
+    supabase_anon_key: str = field(default_factory=lambda: os.getenv("SUPABASE_ANON_KEY", ""))
+    supabase_jwt_secret: str = field(default_factory=lambda: os.getenv("SUPABASE_JWT_SECRET", ""))
     faiss_index_dir: str = field(default_factory=lambda: os.getenv("FAISS_INDEX_DIR", "backend/data/faiss"))
     gcs_project_id: str = field(default_factory=lambda: os.getenv("GCS_PROJECT_ID", ""))
     gcs_bucket_name: str = field(default_factory=lambda: os.getenv("GCS_BUCKET_NAME", ""))
@@ -78,19 +74,6 @@ class AppSettings:
     challenge_dataset_autoload: str = field(default_factory=lambda: os.getenv("CHALLENGE_DATASET_AUTOLOAD", "false"))
     firestore_enabled: str = field(default_factory=lambda: os.getenv("FIRESTORE_ENABLED", "false"))
 
-    def firebase_credentials_dict(self) -> Optional[Dict[str, Any]]:
-        raw = self.firebase_service_account_json.strip()
-        if not raw:
-            return None
-        if os.path.exists(raw):
-            with open(raw, "r", encoding="utf-8") as f:
-                return json.load(f)
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
-
     def gcs_credentials_dict(self) -> Optional[Dict[str, Any]]:
         raw = self.gcs_credentials_json.strip()
         if not raw:
@@ -108,26 +91,20 @@ class AppSettings:
 @dataclass
 class RuntimeState:
     settings: AppSettings
-    firebase_ready: bool = False
-    firebase_auth_ready: bool = False
     firestore_ready: bool = False
     gcs_ready: bool = False
     gemini_ready: bool = False
     faiss_ready: bool = False
     database_mode: str = "not_configured"
-    firebase_status: str = "not_configured"
-    firebase_auth_status: str = "not_configured"
     firestore_status: str = "not_configured"
     gcs_status: str = "not_configured"
     gemini_status: str = "not_configured"
     faiss_status: str = "ok"
-    firebase_app: Any = None
     firestore_client: Any = None
     gcs_client: Any = None
 
     def dependency_statuses(self) -> Dict[str, str]:
         return {
-            "firebase_auth": self.firebase_auth_status,
             "firestore": self.firestore_status,
             "postgresql": self.firestore_status,
             "database": self.database_mode,
@@ -158,64 +135,21 @@ def _load_service_account_credentials(raw_credentials: Optional[Dict[str, Any]])
         return None
 
 
-def _try_initialize_firebase_app(settings: AppSettings) -> Tuple[bool, str, Any]:
-    """Initialize the firebase-admin SDK app for auth token verification.
-
-    This is independent of Firestore — a service-account credential OR
-    Application Default Credentials (ADC) with a project ID is sufficient.
-    On GCP Cloud Run, ADC works automatically without any extra configuration.
-    Returns (app_ready, status, firebase_app).
-    """
-    try:
-        import firebase_admin
-        from firebase_admin import credentials as fb_creds
-    except Exception:
-        return False, "missing_dependency", None
-
-    # Reuse an already-initialized app (e.g., called twice during startup)
-    if firebase_admin._apps:
-        return True, "ready", firebase_admin.get_app()
-
-    creds_info = settings.firebase_credentials_dict()
-    use_adc = str(settings.use_application_default_credentials).lower() == "true"
-    project_id = settings.firebase_project_id or settings.google_cloud_project
-
-    try:
-        if creds_info:
-            app = firebase_admin.initialize_app(fb_creds.Certificate(creds_info))
-            return True, "ready", app
-        elif use_adc and project_id:
-            # Works automatically on GCP Cloud Run via Application Default Credentials
-            app = firebase_admin.initialize_app(options={"projectId": project_id})
-            return True, "ready", app
-        else:
-            return False, "not_configured", None
-    except Exception:
-        return False, "degraded", None
-
-
-def _try_initialize_firebase(settings: AppSettings) -> Tuple[bool, str, Any, Any]:
-    """Initialize firebase-admin app + Firestore client.
-
-    Returns (firestore_ready, status, firebase_app, firestore_client).
-    firebase_app may be set even when Firestore is disabled.
-    """
-    # Ensure the firebase-admin app is initialized first
-    app_ready, app_status, firebase_app = _try_initialize_firebase_app(settings)
-
-    if not app_ready or firebase_app is None:
-        return False, app_status, None, None
-
-    # Firestore is optional — only initialize if explicitly enabled
+def _try_initialize_firestore(settings: AppSettings) -> Tuple[bool, str, Any]:
+    """Initialize Firestore client directly."""
     if str(settings.firestore_enabled).lower() != "true":
-        return False, "not_configured", firebase_app, None
+        return False, "not_configured", None
 
     try:
-        from firebase_admin import firestore
-        firestore_client = firestore.client(app=firebase_app)
-        return True, "ready", firebase_app, firestore_client
-    except Exception:
-        return False, "degraded", firebase_app, None
+        from google.cloud import firestore
+        project_id = settings.google_project_id or settings.google_cloud_project
+        if project_id:
+            firestore_client = firestore.Client(project=project_id)
+        else:
+            firestore_client = firestore.Client()
+        return True, "ready", firestore_client
+    except Exception as e:
+        return False, "degraded", None
 
 
 def _try_initialize_gcs(settings: AppSettings) -> Tuple[bool, str, Any]:
@@ -255,29 +189,21 @@ def load_settings() -> AppSettings:
 @lru_cache(maxsize=1)
 def build_runtime_state() -> RuntimeState:
     settings = load_settings()
-    # Initialize firebase-admin app first (needed for auth token verification)
-    firebase_auth_ready, firebase_auth_status, _ = _try_initialize_firebase_app(settings)
-    # Then initialize Firestore on top (optional, gated by FIRESTORE_ENABLED)
-    firebase_ready, firebase_status, firebase_app, firestore_client = _try_initialize_firebase(settings)
+    firestore_ready, firestore_status, firestore_client = _try_initialize_firestore(settings)
     gcs_ready, gcs_status, gcs_client = _try_initialize_gcs(settings)
     gemini_ready, gemini_status = _probe_gemini(settings)
 
     runtime = RuntimeState(
         settings=settings,
-        firebase_ready=firebase_ready,
-        firebase_auth_ready=firebase_auth_ready,
         firestore_ready=bool(firestore_client),
         gcs_ready=gcs_ready,
         gemini_ready=gemini_ready,
         faiss_ready=True,
         database_mode="firestore" if firestore_client else "not_configured",
-        firebase_status=firebase_status,
-        firebase_auth_status=firebase_auth_status,
-        firestore_status="ready" if firestore_client else firebase_status,
+        firestore_status="ready" if firestore_client else firestore_status,
         gcs_status=gcs_status,
         gemini_status=gemini_status,
         faiss_status="ok",
-        firebase_app=firebase_app,
         firestore_client=firestore_client,
         gcs_client=gcs_client,
     )

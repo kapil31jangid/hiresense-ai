@@ -52,35 +52,41 @@ def get_current_user(request: Request) -> UserContext:
         if token in demo_tokens:
             return demo_tokens[token]
 
-    if not runtime.firebase_auth_ready:
+    if not getattr(runtime.settings, "supabase_jwt_secret", None):
         raise HireSenseException(
             status_code=503,
-            code="FIREBASE_NOT_READY",
-            message="Firebase authentication is not configured.",
+            code="SUPABASE_NOT_READY",
+            message="Supabase authentication is not configured.",
         )
 
     try:
-        from firebase_admin import auth as firebase_auth
-    except Exception as exc:
+        import jwt
+    except ImportError as exc:
         raise HireSenseException(
             status_code=503,
-            code="FIREBASE_NOT_READY",
-            message="Firebase authentication is not available.",
+            code="SUPABASE_NOT_READY",
+            message="PyJWT is not installed.",
             details={"reason": str(exc)},
         ) from exc
 
     try:
-        decoded = firebase_auth.verify_id_token(token, check_revoked=False)
-        user_id = decoded.get("uid") or decoded.get("user_id") or "firebase_user"
-        role = _normalize_role(decoded.get("role") or decoded.get("custom_claims", {}).get("role"))
-        firebase_tenant = decoded.get("tenant_id") or decoded.get("tenantId") or get_tenant_id()
-        tenant_id = firebase_tenant or runtime.settings.firebase_project_id or runtime.settings.google_project_id or "tenant_001"
+        decoded = jwt.decode(
+            token,
+            runtime.settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated"
+        )
+        user_id = decoded.get("sub") or "supabase_user"
+        user_meta = decoded.get("user_metadata", {})
+        app_meta = decoded.get("app_metadata", {})
+        role = _normalize_role(user_meta.get("role") or app_meta.get("role"))
+        tenant_id = get_tenant_id() or "tenant_001"
         return UserContext(user_id=user_id, role=role, tenant_id=tenant_id)
     except Exception as exc:
         raise HireSenseException(
             status_code=401,
             code="UNAUTHORIZED",
-            message="Invalid Firebase ID token.",
+            message="Invalid Supabase ID token.",
             details={"reason": str(exc)},
         ) from exc
 
