@@ -118,25 +118,7 @@ app.include_router(pipeline.router, prefix="/api/v1")
 
 
 def _download_export_from_gcs(filename: str) -> str | None:
-    runtime = getattr(app.state, "runtime", None) or build_runtime_state()
-    if not runtime.gcs_ready or runtime.gcs_client is None:
-        return None
-
-    bucket_name = runtime.settings.gcs_bucket_name or runtime.settings.google_cloud_project
-    if not bucket_name:
-        return None
-
-    try:
-        bucket = runtime.gcs_client.bucket(bucket_name)
-        blob = bucket.blob(f"exports/{filename}")
-        if not blob.exists():
-            return None
-        temp_dir = tempfile.gettempdir()
-        temp_path = os.path.join(temp_dir, filename)
-        blob.download_to_filename(temp_path)
-        return temp_path
-    except Exception:
-        return None
+    return None
 
 
 # Route to serve exported CSV shortlist files
