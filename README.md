@@ -9,10 +9,10 @@ HireSense AI is an enterprise-grade candidate ranking and intelligent matching p
 ```mermaid
 graph TD
     Client[React Frontend <br> Port 3000] -->|HTTP API Proxy| API[FastAPI Backend <br> Port 8000]
-    API --> Auth[Firebase Auth / Local Demo Bypass]
+    API --> Auth[Supabase Auth / Local Demo Bypass]
     
     subgraph Data Pipeline & Stores
-        API --> DBStore[FirestoreBackedStore <br> Auto-Fallback to In-Memory]
+        API --> DBStore[InMemoryStore <br> Ephemeral Storage]
         API --> ChallengeDB[Challenge Gzipped Dataset <br> 100,000 Candidates Index]
         API --> FAISS[FAISS Vector Index <br> Sentence-Transformers]
     end
@@ -33,7 +33,7 @@ graph TD
 *   **Grounded AI Explanations:** Explanations of candidate fits backed by structured `Resume Evidence` extracted from parsing pipelines.
 *   **Recruiter Alert Center:** Real-time pipeline health check tracking parsing errors, profile staleness, embedding states, and low-confidence ranking anomalies.
 *   **High Performance Throttling:** Multi-level caching and throttled evaluation sweeps resulting in a **1,000x+ API speedup** (averaging <60ms responses for large datasets).
-*   **Robust Cloud Fallbacks:** Automatic connection probing on Firebase Firestore; falls back to offline in-memory repository mockups gracefully if Cloud databases are uninitialized.
+*   **Self-Contained Data Stores:** Operates entirely in memory and from local parsed files without requiring external databases, simplifying deployment to PaaS platforms.
 
 ---
 
@@ -121,6 +121,24 @@ python -m app.challenge.offline_ranker --sample --top-k 10 --output exports/samp
 
 ---
 
+## 🚀 Deployment Guide
+
+### Deploying the Backend (Render)
+1. In Render, create a new Web Service pointing to this repository.
+2. Set the Root Directory to `backend`.
+3. Set the Build Command to `pip install -r requirements.txt`.
+4. Set the Start Command to `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+5. Add the environment variable `PYTHON_VERSION` with the value `3.11.9`.
+6. Add the rest of your backend `.env` variables (including your Supabase and Gemini keys).
+
+### Deploying the Frontend (Vercel)
+1. In Vercel, create a new Project pointing to this repository.
+2. Set the Root Directory to `frontend`.
+3. Ensure the Framework Preset is `Vite`.
+4. Add your frontend `.env` variables, making sure to set `VITE_API_URL` to your new live Render backend URL.
+
+---
+
 ## 🧪 Testing
 
 ### Backend Unit Tests
@@ -146,10 +164,8 @@ Configure these values in your `backend/.env` file:
 
 | Variable | Description | Recommended (Local) |
 |---|---|---|
-| `FIRESTORE_ENABLED` | Explicitly enables/disables remote Cloud Firestore calls | `false` |
 | `CHALLENGE_DATASET_AUTOLOAD` | Automatically loads the gzipped challenge dataset on startup | `true` |
 | `HF_HUB_OFFLINE` | Disables Hugging Face remote calls, forcing local model loading | `1` |
-| `USE_APPLICATION_DEFAULT_CREDENTIALS` | Prevents remote GCP credential validation delays | `false` |
 
 ---
 
