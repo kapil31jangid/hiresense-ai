@@ -8,9 +8,8 @@
  * - This client never talks to backend data stores or vector indexes directly.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/api/v1`
-  : '/api/v1'
+const _envUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
+const BASE_URL = _envUrl ? `${_envUrl}/api/v1` : '/api/v1'
 
 function getToken() {
   return localStorage.getItem('hs_token') || ''

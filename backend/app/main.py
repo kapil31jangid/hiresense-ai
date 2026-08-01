@@ -49,12 +49,10 @@ app.state.runtime = runtime_state
 app.add_middleware(TracingMiddleware)
 
 # Register CORS Middleware (allow Vercel frontend to call Render backend)
-_cors_origins_raw = os.environ.get("CORS_ALLOWED_ORIGINS", "")
-_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()] if _cors_origins_raw else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
